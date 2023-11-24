@@ -1,0 +1,166 @@
+#!/usr/bin/env perl 
+
+#
+# list disks and optionally wipe them
+#
+# (C) Alexander Pilch, Gerold Gruber, 2015 - 2023, licensed under the EUPL-1.2-or-later
+#
+
+use strict;
+use warnings;
+use POSIX qw/strftime/;
+use Data::Dumper;
+use Getopt::Std;
+#require 'readSmartData.pm';
+use readSmartData;
+use readNwipeLog;
+
+my $smartResult = {};
+my $formathelper = {};
+my $smartResAfterErase = {};
+my @smartDiff;
+my $line;
+my $key;
+
+$main::VERSION = '1.5.7';
+$Getopt::Std::STANDARD_HELP_VERSION=1;
+
+our %opts;
+my $r = getopts('vdfswb:B:', \%opts) or die "Bad options\n";
+
+$main::verbose = $opts{'v'};
+$main::debug = $opts{'d'};
+my $force = $opts{'f'};
+my $supress = $opts{'s'};
+my $wipe = $opts{'w'};
+my @blacklist = split ( ",", $opts{'b'}) if $opts{'b'};     # blacklist for wiping
+my @uc_blacklist = split ( ",", $opts{'B'}) if $opts{'B'};  # unconditional blacklist, even for listing
+
+# do "force" as default when not wiping
+# supress this with -s
+$force = 1 if ( ! $wipe and ! $supress );
+
+# do syntaxcheck before time cosuming disk lookup
+foreach ( @blacklist, @uc_blacklist ) {
+    if ( $_ !~ /^\/dev\/sd[a-z]+$/ and $_ !~ /^\/dev\/nvme\d+/ ) {
+	die "given blacklistdisk $_ violates blacklist disk naming requirements\n";
+    }
+}
+
+readSmartData::readSmartData($smartResult, \@uc_blacklist);
+readSmartData::consolidateDrives($smartResult, $formathelper);
+if ( not $force ) {
+    print "\nAll mounted or blacklisted disks, md or zpool members are excluded.\n";
+    print "Avoid this by using the -f (force) option.\n";
+} else {
+    print "\nforce option used, all disks considered, except unconditionally blacklisted ones.\n";
+    if ( $wipe ) {
+	print "You will probably wipe the disks this system is running from: BE SURE THAT THIS IS WHAT YOU WANT!\n";
+    }
+}
+print "wiping will require the -w (wipe) option\n" if not $wipe;
+print "\n";
+# exclude mounted HDDs
+my @mount = `mount`;
+# handle blacklist by faking mount entries
+foreach ( @blacklist ) {
+    push (@mount, "$_ \n");
+}
+# exclude HDDs that are part of a software array
+my @md = `cat /proc/mdstat`;
+# exclude HDDs that are part of a zpool
+my @zpool = `if [ \$( which zpool ) ] ; then zpool status -LPv ; fi`;
+
+if ( not $force ) {
+    foreach $key (sort keys %$smartResult) {
+	foreach $line (@mount) {
+	    if($line =~ /\/dev\/($key)[^a-z]/ and defined $smartResult->{$key}) {
+		delete $smartResult->{$key};
+	    }
+	}
+	foreach $line (@md) {
+	    if($line =~ /($key)[^a-z]/ and defined $smartResult->{$key}) {
+		delete $smartResult->{$key};
+	    }
+	}
+	foreach $line (@zpool) {
+	    if($line =~ /\/dev\/($key)[^a-z]/ and defined $smartResult->{$key}) {
+		delete $smartResult->{$key};
+            } elsif ($line =~ /\/dev\/nvme/ and $line =~ /\/dev\/($key)[^0-9]/
+                         and defined $smartResult->{$key}) {
+                delete $smartResult->{$key};
+	    }
+	}
+    }
+}
+
+readSmartData::printSmartData($smartResult, $formathelper);
+readSmartData::printBadDisks($smartResult);
+if ( $wipe ) {
+    print "The following ".scalar(keys %$smartResult)." disks will be erased:\n";
+    my $i = 0;
+    foreach my $key ( sort sortDiskNames keys %$smartResult ) {
+        print "$key ";
+        print "\n" if (not ++$i % 16 );
+    }
+    while (1) {
+        print "\nContinue? [y/n]:";
+        my $choice = <>;
+        chomp $choice;
+        if($choice =~ /^[yY]$/) {
+            my $logfile = strftime "%Y%m%d_%H%M%S", localtime(time);
+            #my $nwipe = " --autonuke --nowait --method=random --logfile=wipe_$logfile.log";
+            my @arguments = ("--autonuke","--nowait","--method=dodshort","--logfile=wipe_$logfile.log");
+            foreach (sort keys %$smartResult) { push @arguments, "/dev/$_"; }
+	    print "nwipe @arguments" if $main::debug;;
+            system("nwipe", @arguments);
+            readSmartData::readSmartData($smartResAfterErase);
+            foreach (sort sortDiskNames keys %$smartResult) {
+                if($smartResult->{$_}{reallocSect} ne $smartResAfterErase->{$_}{reallocSect}) {
+                    push(@smartDiff, $_);
+                }
+            }
+            if (scalar(@smartDiff) > 0) {
+                print "HDDs with changes in reallocated sector count:\n";
+                foreach (@smartDiff) {
+                    print "$_\n";
+                    $smartResult->{$_}{reallocSectAE} = $smartResAfterErase->{$_}{reallocSect};
+                }
+            }
+            else {
+                print "No changes in reallocated sector count.\n";
+            }
+            readNwipeLog::readLog($smartResAfterErase, "wipe_$logfile.log");
+            
+            last;
+        }
+        elsif($choice =~ /^[nN]$/) {
+            last;
+        }
+    }
+}
+
+sub sortDiskNames {
+    my $deltal = length( $a ) - length( $b );
+    return ($deltal ? $deltal : $a cmp $b);
+}
+
+sub HELP_MESSAGE() {
+    my $ofh = shift;    # output file handle
+    print $ofh <<"EoHELP";
+
+Usage: $0 [-v] [-d] [-f] [-w] [-b disk1[,disk2,...]] [-B disk3[,disk4,...]]
+        -v              verbose output
+        -d              debug output
+        -f              force considering used disks (mounted, MD or zpool member)
+        -s              force is default if no wiping requested: prevent this with -s
+        -w              wipe: offer dialogue to start nwipe
+        -b /dev/sda     blacklist disk: will not be included in checked/wipeable drives
+        -B /dev/sdz     unconditionlly blacklist disk: will not be considered at all
+        --help          this information
+        --version       version information
+EoHELP
+
+}
+
+0

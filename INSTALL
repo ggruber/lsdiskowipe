@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+
+has_program() {
+	command -v "${1:?No command to test}" >/dev/null 2>&1
+}
+
+if [ "$( whoami )" != "root" ] ; then
+	echo "$0: I must run with root priviledges, which is apparently not the case."
+	echo Aborting.
+	exit 1
+fi
+
+
+if has_program apt ; then
+	INSTALL="apt install "
+elif has_program dnf ; then
+	INSTALL="dnf install "
+elif has_program yum ; then
+	INSTALL="yum install "
+fi
+
+for i in lsscsi lspci smartctl readlink nvme; do
+	if ! has_program $i ; then
+		if [ "$i" == "smartctl" ] ; then
+			i=smartmontools
+		elif [ "$i" == "lspci" ] ; then
+			i=pciutils
+		elif [ "$i" == "readlink" ] ; then
+			i=coreutils
+		elif [ "$i" == "nvme" ] ; then
+			i=nvme-cli
+		fi
+		$INSTALL $i
+	fi	 
+done
+
+# update the smartdrivedb
+if has_program update-smart-drivedb ; then
+	update-smart-drivedb
+fi
+
+if [ ! -d /usr/local/lib/site_perl ] ; then
+	mkdir -p /usr/local/lib/site_perl
+fi
+
+cp -p *.pm /usr/local/lib/site_perl
+
+echo done.
