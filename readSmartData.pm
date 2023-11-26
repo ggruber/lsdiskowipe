@@ -63,6 +63,7 @@ sub readSmartData {
         my @smartData;
 	my $SASignoreNextIFSpeed = 0;
         my $host       = $hdd{$hddId}{host};
+	print "$hddId\{$host\} " if $main::debug;
         $hdd{$hddId}{blanked}   = 0;
         $hdd{$hddId}{erased}    = 0;
         if ( $ctrl{$host}{driver} eq "3w-9xxx" ) {
@@ -97,9 +98,13 @@ sub readSmartData {
             $ctrlChoice{ $ctrl{$host}{driver} }->();
 	    # if there are some slow SAS disks show activity
             print ".";
-        }
+        } else {
+	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
+	    exit 3;
+	}
 
         foreach my $line (@smartData) {
+	    print $line if $main::debug;
             chomp $line;
             if ( $line =~ /Model\sFamily:\s+(.+)$/ or $line =~ /^Vendor:\s+(.+)$/i ) {
                 $smart->{$hddId}{vendor} = $1;
@@ -179,8 +184,13 @@ sub readSmartData {
 	    elsif ( $line =~ /Percentage used endurance indicator/i and $line =~ /(\d+)%$/ ) {
 		$smart->{$hddId}{pctRemaining} = 100 - $1;
 	    }
-	    elsif ( $line =~ /Wear_Leveling_Count\s+/i and $line =~ /Wear_Leveling_Count\s+0x[0-9a-f]+\s+[0]*(\d+)\s/ ) {
-		$smart->{$hddId}{pctRemaining} = $1;
+	    elsif ( $line =~ /Wear_Leveling_Count\s+/i ) {
+		# looks dífferent for smartctl -a and smartctl -x
+		if ( $line =~ /Wear_Leveling_Count\s+0x[0-9a-f]+\s+[0]*(\d+)\s/i ) {
+		    $smart->{$hddId}{pctRemaining} = $1;
+		} elsif ( $line =~ /Wear_Leveling_Count\s+[A-Z-]+\s+[0]*(\d+)\s/i ) {
+		    $smart->{$hddId}{pctRemaining} = $1;
+		}
 	    }
 	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+0x[0-9a-f]+\s+[0]*(\d+)\s/ ) {
 		$smart->{$hddId}{pctRemaining} = $1;
