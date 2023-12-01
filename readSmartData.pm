@@ -241,6 +241,18 @@ sub readSmartData {
                     $smart->{$hddId}{ifSpeed} = $1;
                     $smart->{$hddId}{ifSpeed} =~ s/\.0//;
                 }
+                elsif ( $line =~ /ATA\sVersion\sis.+ATAPI-7/i ) {
+                    $smart->{$hddId}{ifSpeed} = "133MB/s";
+                }
+                elsif ( $line =~ /ATA\sVersion\sis.+ATAPI-6/i ) {
+                    $smart->{$hddId}{ifSpeed} = "100MB/s";
+                }
+                elsif ( $line =~ /ATA\sVersion\sis.+ATAPI-5/i ) {
+                    $smart->{$hddId}{ifSpeed} = "66.6MB/s";
+                }
+                elsif ( $line =~ /ATA\sVersion\sis.+ATAPI-4/i ) {
+                    $smart->{$hddId}{ifSpeed} = "33.3MB/s";
+                }
             } elsif ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} eq "sas" ) {
                 if ( $line =~ /Elements\sin\sgrown\sdefect\slist:\s+(\d+)$/i ) {
                     $smart->{$hddId}{reallocSect} = $1;
