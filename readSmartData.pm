@@ -81,6 +81,7 @@ sub readSmartData {
             "ahci"          => sub { @smartData = `smartctl -a /dev/$hddId` },
             "uas"           => sub { @smartData = `smartctl -a /dev/$hddId` },
             "nvme"          => sub { @smartData = `smartctl -a /dev/$hddId` },
+	    "usb-storage"   => sub { @smartData = `smartctl -a /dev/$hdd{$hddId}{scsi}` },
             # not seen SAS disks on ahci, uas or nvme so -a seems sufficient
             # else -x to get interface speed for SAS drives
             "3w-9xxx"       => sub { @smartData = `smartctl -x -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa}` },
@@ -100,7 +101,7 @@ sub readSmartData {
             print ".";
         } else {
 	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
-	    exit 3;
+	    next;
 	}
 
         foreach my $line (@smartData) {
@@ -108,6 +109,9 @@ sub readSmartData {
             chomp $line;
             if ( $line =~ /Model\sFamily:\s+(.+)$/ or $line =~ /^Vendor:\s+(.+)$/i ) {
                 $smart->{$hddId}{vendor} = $1;
+            }
+            if ( $line =~ /Model\sFamily:\s+Seagate\s+.*([457][0-9][0-9]0)[^0-9]/ ) {
+                $smart->{$hddId}{rotation} = $1;
             }
 	    # use only if first method gave no result (so far)
             if (  !(defined $smart->{$hddId}{vendor} and $smart->{$hddId}{vendor} ne "" ) and $line =~ /Add\.\sProduct\sId:\s+(.+)$/i ) {
@@ -158,6 +162,13 @@ sub readSmartData {
 		    $smart->{$hddId}{transport} = "sata";
 		}
             }
+	    elsif ( $line =~ /ATA\sVersion\sis:\s+ATA.*$/i ) {
+		if ( defined $ctrl{$host}{driver} and $ctrl{$host}{driver} eq "usb-storage" ) {
+		    $smart->{$hddId}{transport} = "uas-ata";
+		} else {
+                    $smart->{$hddId}{transport} = "ata";
+                }
+	    }
             elsif ( $line =~ /Transport protocol:\s+SAS.*$/ ) {
                 $smart->{$hddId}{transport} = "sas";
             }
@@ -195,7 +206,7 @@ sub readSmartData {
 	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+0x[0-9a-f]+\s+[0]*(\d+)\s/ ) {
 		$smart->{$hddId}{pctRemaining} = $1;
 	    }
-            if ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} =~ /sata/ ) {
+            if ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} =~ /[s]*ata/ ) {
                 if ( $line =~ /Reallocated_Sector_Ct.+\s(\d+)$/i or $line =~ /Reallocate_NAND_Blk_Cnt.+\s(\d+)$/i ) {
                     $smart->{$hddId}{reallocSect} = $1;
                 }
