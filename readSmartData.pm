@@ -210,10 +210,10 @@ sub readSmartData {
                 if ( $line =~ /Reallocated_Sector_Ct.+\s(\d+)$/i or $line =~ /Reallocate_NAND_Blk_Cnt.+\s(\d+)$/i ) {
                     $smart->{$hddId}{reallocSect} = $1;
                 }
-                elsif ( $line =~ /.+\sPower_On_Hours.+\s(\d+)$/i ) {
+                elsif ( $line =~ /.+\sPower_On_Hours.+\s(\d+)$/i or $line =~ /.+\sPower_On_Hours.+\s(\d+)h[0-9\+ms\.]+$/i ) {
                     $smart->{$hddId}{powOnHours} = $1;
                 }
-                elsif ( $line =~ /.+\sPower_On_Hours.+\s(\d+)h[0-9\+ms\.]+$/i ) {
+		elsif ( $line =~ /.+\sPower_On_Hours.+\s(\d+)\s+\(\d+\s+\d+\s+\d+\)\s*$/i ) {
                     $smart->{$hddId}{powOnHours} = $1;
                 }
                 elsif ( $line =~ /.+\sAirflow_Temperature_Cel[^(]+\s(\d+)$/i ) {
