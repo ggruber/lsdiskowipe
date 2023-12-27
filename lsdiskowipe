@@ -11,7 +11,6 @@ use warnings;
 use POSIX qw/strftime/;
 use Data::Dumper;
 use Getopt::Std;
-#require 'readSmartData.pm';
 use readSmartData;
 use readNwipeLog;
 
@@ -22,7 +21,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.5.7';
+$main::VERSION = '1.6.1';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -40,7 +39,14 @@ my @uc_blacklist = split ( ",", $opts{'B'}) if $opts{'B'};  # unconditional blac
 # supress this with -s
 $force = 1 if ( ! $wipe and ! $supress );
 
-# do syntaxcheck before time cosuming disk lookup
+# check required programs
+foreach ( split (/ /, "lsscsi lspci smartctl readlink sg_readcap") ) {
+    if ( not `sh -c "which $_"` ) {
+	    die "required program \"$_\" not found, run installer again";
+    }
+}
+
+# do syntaxcheck before time consuming disk lookup
 foreach ( @blacklist, @uc_blacklist ) {
     if ( $_ !~ /^\/dev\/sd[a-z]+$/ and $_ !~ /^\/dev\/nvme\d+/ ) {
 	die "given blacklistdisk $_ violates blacklist disk naming requirements\n";

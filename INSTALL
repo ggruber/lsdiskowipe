@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# (re-)installer for lsdiskowipe required tools and the program modules
+#
+# (C) Gerold Gruber, 2023, licensed under the EUPL-1.2-or-later
+#
 
 has_program() {
 	command -v "${1:?No command to test}" >/dev/null 2>&1
@@ -11,7 +15,7 @@ if [ "$( whoami )" != "root" ] ; then
 	exit 1
 fi
 
-
+# intended to work on different platforms
 if has_program apt ; then
 	INSTALL="apt install "
 elif has_program dnf ; then
@@ -20,16 +24,25 @@ elif has_program yum ; then
 	INSTALL="yum install "
 fi
 
-for i in lsscsi lspci smartctl readlink nvme; do
+# make sure helper programs are available
+for i in lsscsi lspci smartctl readlink sg_readcap nvme; do
 	if ! has_program $i ; then
-		if [ "$i" == "smartctl" ] ; then
-			i=smartmontools
+		if [ "$i" == "lsscsi" ] ; then
+			i=lsscsi
 		elif [ "$i" == "lspci" ] ; then
 			i=pciutils
+		elif [ "$i" == "smartctl" ] ; then
+			i=smartmontools
 		elif [ "$i" == "readlink" ] ; then
 			i=coreutils
+		elif [ "$i" == "sg_readcap" ] ; then
+			i=sg3-utils
 		elif [ "$i" == "nvme" ] ; then
-			i=nvme-cli
+			if ( ls /dev/nvme* 2>/dev/null | grep -q nvme ) ; then
+				i=nvme-cli
+			else
+				break
+			fi
 		fi
 		$INSTALL $i
 	fi	 
@@ -40,6 +53,7 @@ if has_program update-smart-drivedb ; then
 	update-smart-drivedb
 fi
 
+# install the program's modules
 if [ ! -d /usr/local/lib/site_perl ] ; then
 	mkdir -p /usr/local/lib/site_perl
 fi

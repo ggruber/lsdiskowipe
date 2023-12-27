@@ -9,13 +9,14 @@ sub sortDiskNames {
 }
 
 sub readSmartData {
-    my $smart          = $_[0];
-    my $uc_blacklist   = $_[1];
+    my $smart          = $_[0];	# ptr to smart data structure
+    my $uc_blacklist   = $_[1]; # ptr to unconditional blacklist
     my @controllerData = `lsscsi -H`;
     my @hddData        = `lsscsi -g`;
     my %hdd;
     my %ctrl;
     my $twa = 0;
+    my $has_nvme = 0;
     my @nvmedisks;
 
     foreach my $line (@controllerData) {
@@ -31,11 +32,17 @@ sub readSmartData {
                 $twa++;
             }
         } elsif ( $line =~ /^\[(N:\d+)\]/ ) {
+            if ( not $has_nvme ) {
+                $has_nvme = 1;
+                if ( not `sh -c "which nvme"` ) {
+		    die "required program \"nvme\" not found, run installer again";
+		}
+            }
 	    my $id     = $1;
 	    my $driver = "nvme";
             $ctrl{$id}{driver} = $driver;
 	} else {
-	    print "$line\n";
+	    print "$line\n" if ( $main::verbose or $main::debug );
 	}
 
     }
@@ -61,6 +68,7 @@ sub readSmartData {
     }
     foreach my $hddId ( sort sortDiskNames keys %hdd ) {
         my @smartData;
+	my @T10PI_Data;
 	my $SASignoreNextIFSpeed = 0;
         my $host       = $hdd{$hddId}{host};
 	print "$hddId\{$host\} " if $main::debug;
@@ -93,6 +101,19 @@ sub readSmartData {
             # aacraid SAS does only work without -d sat. A solution for SATA and SAS still needs to be implemented.
         );
 
+	my %ctrlChoice2 = (
+            "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
+            "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
+            "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
+	    "usb-storage"   => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
+            "3w-9xxx"       => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa}` },
+            "3w-sas"        => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{id} /dev/$hddId` },
+            "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
+            "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
+            "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l -d megaraid,$hdd{$hddId}{id} /dev/$hddId` },
+            "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi}` }
+        );
+
         
         if ( defined $ctrlChoice{ $ctrl{$host}{driver} } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
@@ -103,6 +124,19 @@ sub readSmartData {
 	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
 	    next;
 	}
+
+        if ( defined $ctrlChoice2{ $ctrl{$host}{driver} } ) {
+            #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
+            $ctrlChoice2{ $ctrl{$host}{driver} }->();
+	    # if there are some slow SAS disks show activity
+            print "'";
+        } else {
+	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
+	    next;
+	}
+
+	$smart->{$hddId}{has_cryProt} = 'n/a' until defined $smart->{$hddId}{has_cryProt};
+	$smart->{$hddId}{cryProtAct} = 'n/a'  until defined $smart->{$hddId}{cryProtAct};
 
         foreach my $line (@smartData) {
 	    print $line if $main::debug;
@@ -294,6 +328,19 @@ sub readSmartData {
                 }
             }
         }
+        foreach my $line (@T10PI_Data) {
+	    print $line if $main::debug;
+            chomp $line;
+            if ( $line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d),\s+p_i_exponent=(\d)\s+\[type \d protection\]/i ) {
+		print "A: \$1: $1 \$2: $2\n" if $main::debug;
+		$smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
+		$smart->{$hddId}{cryProtAct} = 'yes';
+            } elsif ($line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d)/i ) {
+		print "B: \$1: $1 \$2: $2\n" if $main::debug;
+		$smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
+		$smart->{$hddId}{cryProtAct} = 'no';
+	    }
+	}
     }
     # get bus speed for nvmes
     foreach my $cnvme ( @nvmedisks ) {
@@ -448,10 +495,10 @@ sub printSmartData {
     # original static version
     # my $outFormat =        "%-7s %-10s %-30s %-24s %-15s %-8s %-9s %-11s %-5s %-8s %-8s %-7s %-4s %-13s\n";
     # dynamic column width
-    my $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-13s\n",
+    my $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-13s\n",
        $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
        $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect} );
-    printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "CAPACITY", "TRANSPORT", "IFSPEED",
+    printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
 		       "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS";
 
     foreach my $disk ( sort sortDiskNames keys %$smart ) {
@@ -462,6 +509,8 @@ sub printSmartData {
           defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
           defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
           defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
+          defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
+          defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
           defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
           defined $smart->{$disk}{transport}   ? $smart->{$disk}{transport}   : "",
           defined $smart->{$disk}{ifSpeed}     ? $smart->{$disk}{ifSpeed}     : "",
