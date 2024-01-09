@@ -389,13 +389,17 @@ sub consolidateDrives {
 	    # no vendor detected, try to derive it from disk type
 	    if ( $smart->{$disk}{devModel} =~ /ST[0-9]/ ) {
 		$smart->{$disk}{vendor} = "Seagate";
-	    } elsif ( $smart->{$disk}{devModel} =~ /(WD|Samsung|Intel)/i ) {
+	    } elsif ( $smart->{$disk}{devModel} =~ /TS[0-9]/ ) {
+		$smart->{$disk}{vendor} = "Transcend";
+	    } elsif ( $smart->{$disk}{devModel} =~ /(WDC|Samsung|Intel)/i ) {
+		$smart->{$disk}{vendor} = $1;
+	    } elsif ( $smart->{$disk}{devModel} =~ /(WD)/i ) {
 		$smart->{$disk}{vendor} = $1;
 	    }
 	}
 	if( $smart->{$disk}{vendor} ) {
 	    $vendor = $smart->{$disk}{vendor};
-	    $vendor =~ s/.*Western Digital.*/WD/i;
+	    $vendor =~ s/.*Western Digital.*/WDC/i;
 	    $vendor =~ s/.*Hitachi.*/Hitachi/i;
 	    $vendor =~ s/.*Dell.*/Dell/i;
 	    $vendor =~ s/.*Toshiba.*/Toshiba/i;
@@ -405,6 +409,7 @@ sub consolidateDrives {
 	    $vendor =~ s/.*Marvell based SanDisk SSDs.*/SanDisk/i;
 	    $vendor =~ s/.*SandForce Driven SSDs.*/SandForce/i;
 	    $vendor =~ s/.*Crucial\/Micron.*SSD.*/Crucial\/Micron/i;
+	    $vendor =~ s/.*WD Blue \/ Red \/ Green SSDs/WDC/i;
 	    $vendor =~ s/.*Micron.*SSD.*/Micron/i;
 	    $smart->{$disk}{vendor} = $vendor;
 	    # shorten the model by a leading vendor strings
