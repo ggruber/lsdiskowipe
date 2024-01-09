@@ -223,6 +223,9 @@ sub readSmartData {
 	    elsif ( $line =~ /Percent_Life_Remaining\s+|SSD_Life_Left\s+|Perc_Avail_Resrvd_Space\s+/i and $line =~ /(\d+)$/ ) {
 		$smart->{$hddId}{pctRemaining} = $1;
 	    }
+	    elsif ( $line =~ /Available_Reservd_Space\s+/i and $line =~ /(\d+)$/ ) {
+		$smart->{$hddId}{pctRemaining} = $1;
+	    }
 	    elsif ( $line =~ /Percent_Lifetime_Remain\s+/i and $line =~ /(\d+)$/ ) {
 		$smart->{$hddId}{pctRemaining} = 100 - $1;
 	    }
