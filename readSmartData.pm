@@ -189,6 +189,15 @@ sub readSmartData {
                     $smart->{$hddId}{sectSize} = "$1";
                 }
             }
+            elsif ( $line =~ /physical block size/i ) {
+                # we assume only one number on this line
+                if ( $line =~ /^.*:\s+(\d+)\s*[^0-9]*$/ ) {
+		    $smart->{$hddId}{sectSize} = $smart->{$hddId}{sectSize} ? "$smart->{$hddId}{sectSize}/$1" : $1;
+                } else {
+		    print "expected byte count for logical block size not found\n" if ( $main::verbose or $main::debug );
+		    print "$line\n" if ( $main::verbose or $main::debug );
+                }
+            }
             elsif ( $line =~ /SATA\sVersion\sis:\s+SATA.*$/i ) {
 		if ( defined $ctrl{$host}{driver} and $ctrl{$host}{driver} eq "uas" ) {
 		    $smart->{$hddId}{transport} = "uas-sata";
