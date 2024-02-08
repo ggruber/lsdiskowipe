@@ -283,6 +283,9 @@ sub readSmartData {
                         $smart->{$hddId}{numErr} = $1;
                    }
                 }
+		elsif ( $line =~ /Current_Pending_Sector.*\s(\d+)$/i ) {
+		    $smart->{$hddId}{pendsect} = $1;
+		}
                 elsif ( $line =~ /SATA\sVersion\sis.+\(current:\s+(\d+.+)\)$/i ) {
                     $smart->{$hddId}{ifSpeed} = $1;
                     $smart->{$hddId}{ifSpeed} =~ s/\.0//;
@@ -315,6 +318,9 @@ sub readSmartData {
                 }
                 elsif ( $line =~ /Current\sDrive\sTemperature:\s+(\d+)/i ) {
                     $smart->{$hddId}{temp} = $1;
+                }
+                elsif ( $line =~ /Total new blocks reassigned =\s+(\d+)$/i ) {
+                    $smart->{$hddId}{pendsect} = $1;
                 }
                 elsif ( $line =~ /Non-medium\serror\scount:\s+(\d+)$/i ) {
                     $smart->{$hddId}{numErr} = $1;
@@ -395,7 +401,9 @@ sub consolidateDrives {
 	firmware    => "FIRMWARE",
 	ifSpeed     => "IFSPEED",
 	reallocSect => "SECTORS",
-	sectSize    => "SECTSIZE"
+	pendsect    => "PENDSECT",
+	sectSize    => "SECTSIZE",
+        numErr      => "ERRORS"
 	);
 
     foreach $disk ( sort sortDiskNames keys %$smart ) {
@@ -518,11 +526,11 @@ sub printSmartData {
     # original static version
     # my $outFormat =        "%-7s %-10s %-30s %-24s %-15s %-8s %-9s %-11s %-5s %-8s %-8s %-7s %-4s %-13s\n";
     # dynamic column width
-    my $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-13s\n",
+    my $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
        $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
-       $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect} );
+       $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
     printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
-		       "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS";
+		       "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
 
     foreach my $disk ( sort sortDiskNames keys %$smart ) {
 
@@ -544,7 +552,8 @@ sub printSmartData {
           defined $smart->{$disk}{powOnHours}  ? $smart->{$disk}{powOnHours}  : "",
           defined $smart->{$disk}{temp}        ? $smart->{$disk}{temp}        : "",
           defined $smart->{$disk}{pctRemaining}? $smart->{$disk}{pctRemaining}: "",
-          defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "";
+          defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "",
+          defined $smart->{$disk}{pendsect}    ? $smart->{$disk}{pendsect}    : "";
     }
 }
 
