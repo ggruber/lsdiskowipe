@@ -74,6 +74,10 @@ sub readSmartData {
 	print "$hddId\{$host\} " if $main::debug;
         $hdd{$hddId}{blanked}   = 0;
         $hdd{$hddId}{erased}    = 0;
+	# info on driver if verbose is requested
+	my $driver =  $ctrl{$host}{driver} ? $ctrl{$host}{driver} : 'unknown' ;
+	print "$hddId: hddId:driver $driver\n" if $main::verbose;
+	    
         if ( $ctrl{$host}{driver} eq "3w-9xxx" ) {
             foreach my $twHdd (@{ $ctrl{$host}{twData} }) {
                 if ( $twHdd =~ /^p(\d+)\s+\w+\s+u$hdd{$hddId}{id}.*$/i ) {
@@ -399,14 +403,16 @@ sub consolidateDrives {
 	# beautify Model, try to add missing Vendor
 	if( not $smart->{$disk}{vendor} ) {
 	    # no vendor detected, try to derive it from disk type
-	    if ( $smart->{$disk}{devModel} =~ /ST[0-9]/ ) {
-		$smart->{$disk}{vendor} = "Seagate";
-	    } elsif ( $smart->{$disk}{devModel} =~ /TS[0-9]/ ) {
-		$smart->{$disk}{vendor} = "Transcend";
-	    } elsif ( $smart->{$disk}{devModel} =~ /(WDC|Samsung|Intel)/i ) {
-		$smart->{$disk}{vendor} = $1;
-	    } elsif ( $smart->{$disk}{devModel} =~ /(WD)/i ) {
-		$smart->{$disk}{vendor} = $1;
+	    if ( exists $smart->{$disk}{devModel} ) { 
+		    if ( $smart->{$disk}{devModel} =~ /ST[0-9]/ ) {
+			$smart->{$disk}{vendor} = "Seagate";
+		    } elsif ( $smart->{$disk}{devModel} =~ /TS[0-9]/ ) {
+			$smart->{$disk}{vendor} = "Transcend";
+		    } elsif ( $smart->{$disk}{devModel} =~ /(WDC|Samsung|Intel)/i ) {
+			$smart->{$disk}{vendor} = $1;
+		    } elsif ( $smart->{$disk}{devModel} =~ /(WD)/i ) {
+			$smart->{$disk}{vendor} = $1;
+		}
 	    }
 	}
 	if( $smart->{$disk}{vendor} ) {
@@ -424,7 +430,7 @@ sub consolidateDrives {
 	    $vendor =~ s/.*WD Blue \/ Red \/ Green SSDs/WDC/i;
 	    $vendor =~ s/.*Micron.*SSD.*/Micron/i;
 	    $smart->{$disk}{vendor} = $vendor;
-	    # shorten the model by a leading vendor strings
+	    # shorten the model by a leading vendor string
 	    $smart->{$disk}{devModel} =~ s/^$vendor[\s_]+//i;
 	    $smart->{$disk}{devModel} =~ s/\s+$vendor$//i;
 	}
