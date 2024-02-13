@@ -117,7 +117,7 @@ sub readSmartData {
             "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
             "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
             "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
-            "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l -d megaraid,$hdd{$hddId}{id} /dev/$hddId` },
+            "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
             "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi}` }
         );
 
@@ -131,19 +131,6 @@ sub readSmartData {
 	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
 	    next;
 	}
-
-        if ( defined $ctrlChoice2{ $ctrl{$host}{driver} } ) {
-            #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
-            $ctrlChoice2{ $ctrl{$host}{driver} }->();
-	    # if there are some slow SAS disks show activity
-            print "'";
-        } else {
-	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
-	    next;
-	}
-
-	$smart->{$hddId}{has_cryProt} = 'n/a' until defined $smart->{$hddId}{has_cryProt};
-	$smart->{$hddId}{cryProtAct} = 'n/a'  until defined $smart->{$hddId}{cryProtAct};
 
         foreach my $line (@smartData) {
 	    print $line if $main::Debug;
@@ -368,6 +355,33 @@ sub readSmartData {
                 }
             }
         }
+	if ( not ( $smart->{$hddId}{vendor} or  $smart->{$hddId}{devModel} and  $smart->{$hddId}{serial} ) and ( $hddId !~ /nvme/i ) ) {
+	    print "\nno basic information for $hddId, omitting it\n";
+	    delete $smart->{$hddId};
+	    next;
+	}
+#	if ( not defined $smart->{$hddId}{vendor} or not defined $smart->{$hddId}{devModel} or not defined $smart->{$hddId}{serial} ) {
+#	    print "no basic information for $hddId\n";
+#	    next;
+#	}
+#	if ( $smart->{$hddId}{vendor} eq "" and $smart->{$hddId}{devModel} eq "" and $smart->{$hddId}{serial} eq "" ) {
+#	    print "no basic informations for $hddId\n";
+#	    next;
+#	}
+
+	$smart->{$hddId}{has_cryProt} = 'n/a' until defined $smart->{$hddId}{has_cryProt};
+	$smart->{$hddId}{cryProtAct} = 'n/a'  until defined $smart->{$hddId}{cryProtAct};
+
+        if ( defined $ctrlChoice2{ $ctrl{$host}{driver} } ) {
+            #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
+            $ctrlChoice2{ $ctrl{$host}{driver} }->();
+	    # if there are some slow SAS disks show activity
+            print "'";
+        } else {
+	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
+	    next;
+	}
+
         foreach my $line (@T10PI_Data) {
 	    print $line if $main::Debug;
             chomp $line;

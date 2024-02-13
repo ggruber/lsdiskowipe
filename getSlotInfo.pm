@@ -20,13 +20,13 @@ sub getSlotInfo {
 	"nvme"         => "sltinf_none",
 	"uas"          => "sltinf_none",
 	"usb-storage"  => "sltinf_none",
-	"3w-9xxx"      => "unimplemented", # twcli
-	"3w-sas"       => "unimplemented", # twcli
-	"mptsas"       => "unimplemented", # lsimega
+	"3w-9xxx"      => "unimplemented",  # twcli
+	"3w-sas"       => "unimplemented",  # twcli
+	"mptsas"       => "unimplemented",  # lsimega or megacli?
 	"mpt2sas"      => "sltinf_sas23ircu",
 	"mpt3sas"      => "sltinf_sas23ircu",
-	"megaraid_sas" => "unimplemented", # storcli
-	"aacraid"      => "unimplemented", # arcconf
+	"megaraid_sas" => "sltinf_storcli", # storcli
+	"aacraid"      => "unimplemented",  # arcconf
     );
 
     # first: which controllers do we have
@@ -369,6 +369,234 @@ sub sltinf_sas23ircu {
 	        
 	}
 	close (PROGOUT);
+    }
+}
+
+sub sltinf_storcli {
+    my $ctrlmodule = $_[0];
+    my $controllertype = $_[1];
+    my $smart = $_[2];
+    my $disklist = $_[3];
+
+    print "Controllertype: $ctrlmodule\n" if $main::debug; 
+    my $infprog = "storcli";
+    my @disklistA = split ( /, /, $disklist);
+    my $disk;
+
+    my $diskidentifier;
+    my %diskidenthash;
+
+    my $inHD;
+    my $complete;
+    my $enclosure;
+    my $slot;
+    my $modell;
+    my $serial;
+    my $currentdiskid;
+
+    print Dumper (%$smart) if $main::Debug;
+    print Dumper (@disklistA) if $main::Debug;
+    # build a hash of $smart->{$disk}{diskIdentifier} => disk
+    foreach $disk ( @disklistA ) {
+	$smart->{$disk}{vendor} = "" unless $smart->{$disk}{vendor};
+	$smart->{$disk}{devModel} = "" unless $smart->{$disk}{devModel};
+	$smart->{$disk}{serial} = "" unless $smart->{$disk}{serial};
+	if ( $smart->{$disk}{vendor} eq "" or $smart->{$disk}{devModel} eq "" or $smart->{$disk}{serial} eq "" ) {
+	    print "Warning: disk $disk no vendor ( $smart->{$disk}{vendor} ) or 
+	           no modell ( $smart->{$disk}{devModel} or no serial ( $smart->{$disk}{serial}\n";
+	}
+	# $diskidentifier = $smart->{$disk}{vendor}.$smart->{$disk}{devModel}.$smart->{$disk}{serial};	# drop vendor, as SATA disks don't show one
+	$serial = $smart->{$disk}{serial};
+	$serial =~ s/-//g;	# drop '-' characters from serial number as controller strips this when reporting serial
+	$diskidentifier = "$smart->{$disk}{devModel}.$serial";
+	print "disk: $disk diskindentifier: $diskidentifier\n" if $main::debug;
+	$diskidenthash{$diskidentifier} .= $diskidenthash{$diskidentifier} ? ", $disk" : $disk;
+    }
+    print Dumper(%diskidenthash) if $main::Debug;
+    # get controller count
+    my $controllercnt;
+    my @controlleridxs;
+    my $controllerId;
+
+    if ( not `sh -c "which $infprog"` ) {
+	die "required program \"$infprog\" not found, install it to continue\n";
+    }
+    open (PROGOUT, "$infprog show ctrlcount |" || die "getting controllercount from $infprog failed");
+    while (<PROGOUT>) {
+	chomp;
+	if ($_ =~ /Controller Count = (\d+)/) {
+	    $controllercnt = $1
+	}
+    }
+    close (PROGOUT);
+    for ( my $i = 0; $i < $controllercnt; $i++ ) {
+	push ( @controlleridxs, $i );
+    }
+    print "$infprog: Controllers found ( " . scalar @controlleridxs ." ), index: @controlleridxs\n"  if $main::debug;
+    foreach $controllerId ( @controlleridxs ) {
+
+	my @encloseidxs = ();
+	my $enclosureId;
+
+	print "$infprog: reading controller $controllerId\n" if $main::verbose;
+	# get enclosure info
+	open (PROGOUT, "$infprog /c$controllerId/eall show |" || die "getting enclosure infos from $infprog controller #$controllerId failed");
+# sample output
+## # storcli /c0/eall show  | less
+## CLI Version = 007.1623.0000.0000 May 17, 2021
+## Operating system = Linux 6.5.11-7-pve
+## Controller = 0
+## Status = Success
+## Description = None
+## 
+## 
+## Properties :
+## ==========
+## 
+## ----------------------------------------------------------------------------
+## EID State Slots PD PS Fans TSs Alms SIM Port#      ProdID    VendorSpecific
+## ----------------------------------------------------------------------------
+##  32 OK       16  8  0    0   0    0   1 00 & 00 x8 BP13G+EXP
+## ----------------------------------------------------------------------------
+## 
+## EID=Enclosure Device ID | PD=Physical drive count | PS=Power Supply count
+## TSs=Temperature sensor count | Alms=Alarm count | SIM=SIM Count | ProdID=Product ID
+## 
+
+	while (<PROGOUT>) {
+	    chomp;
+	    if ( $_ =~ /^\s+(\d+)\s+/ ) {
+		push ( @encloseidxs, $1 );
+	    }
+	}
+	close (PROGOUT);
+	# get phys disk info per enclosure
+	while ( $enclosureId = pop ( @encloseidxs ) ) {
+	    print "$infprog: reading disk info for controller $controllerId enclosure $enclosureId\n" if $main::verbose;
+	    open (PROGOUT, "$infprog /c$controllerId/e$enclosureId/sall show all |" || die "getting disk infos from $infprog controller #$controllerId enclosure $enclosureId failed");
+# sample output
+## CLI Version = 007.1623.0000.0000 May 17, 2021
+## Operating system = Linux 6.5.11-7-pve
+## Controller = 0
+## Status = Success
+## Description = Show Drive Information Succeeded.
+## 
+## 
+## Drive /c0/e32/s0 :
+## ================
+## 
+## ----------------------------------------------------------------------------
+## EID:Slt DID State DG       Size Intf Med SED PI SeSz Model          Sp Type
+## ----------------------------------------------------------------------------
+## 32:0      0 JBOD  -  111.790 GB SATA SSD N   N  512B SSDSC2BB120G7R U  -
+## ----------------------------------------------------------------------------
+## 
+## EID=Enclosure Device ID|Slt=Slot No|DID=Device ID|DG=DriveGroup
+## DHS=Dedicated Hot Spare|UGood=Unconfigured Good|GHS=Global Hotspare
+## UBad=Unconfigured Bad|Sntze=Sanitize|Onln=Online|Offln=Offline|Intf=Interface
+## Med=Media Type|SED=Self Encryptive Drive|PI=Protection Info
+## SeSz=Sector Size|Sp=Spun|U=Up|D=Down|T=Transition|F=Foreign
+## UGUnsp=UGood Unsupported|UGShld=UGood shielded|HSPShld=Hotspare shielded
+## CFShld=Configured shielded|Cpybck=CopyBack|CBShld=Copyback Shielded
+## UBUnsp=UBad Unsupported|Rbld=Rebuild
+## 
+## 
+## Drive /c0/e32/s0 - Detailed Information :
+## =======================================
+## 
+## Drive /c0/e32/s0 State :
+## ======================
+## Shield Counter = 0
+## Media Error Count = 0
+## Other Error Count = 5156
+## Drive Temperature =  24C (75.20 F)
+## Predictive Failure Count = 0
+## S.M.A.R.T alert flagged by drive = No
+## 
+## 
+## Drive /c0/e32/s0 Device attributes :
+## ==================================
+## SN =   PHDV808506RR150MGN
+## Manufacturer Id = ATA
+## Model Number = SSDSC2BB120G7R
+## NAND Vendor = NA
+## WWN = 55CD2E414F1CC936
+## Firmware Revision = N201DL43
+## Raw size = 111.790 GB [0xdf94bb0 Sectors]
+## Coerced size = 111.250 GB [0xde80000 Sectors]
+## Non Coerced size = 111.290 GB [0xde94bb0 Sectors]
+## Device Speed = 6.0Gb/s
+## Link Speed = 6.0Gb/s
+## NCQ setting = N/A
+## Write Cache = Enabled
+## Logical Sector Size = 512B
+## Physical Sector Size = 4 KB
+## Connector Name = 00
+## 
+	    $inHD = 0;
+	    $complete = 0;
+	    $slot = "";
+	    $modell = "";
+	    $serial = "";
+
+	    while (<PROGOUT>) {
+		chomp;
+		next if ( $inHD == 0 and $_ !~ /^Drive.*Device attributes :/ );
+		print "drive details: $_\n" if $main::debug;
+		if ( /^Drive \/c$controllerId\/e$enclosureId\/s(\d+)\s+Device attributes :/i ) {
+		    $slot = $1;
+		    print "C: $controllerId E: $enclosureId S: $slot\n" if $main::debug;
+		    $inHD = 1;
+		}
+		elsif ( /^SN =\s+(\w+.*)\s*$/ ) {
+		    $serial = $1;
+		    print "Serial: $serial\n" if $main::debug;
+		}
+		elsif ( /^Model Number =\s+(\S+.*)\s*$/ ) {
+		    $modell = $1;
+		    print "Modell: $modell\n" if $main::debug;
+		}
+		elsif ( $complete == 0 and length $enclosureId and length $slot and length $modell and length $serial  ) {
+		    # we have all infos for a disk we look for
+		    $complete = 1;
+	# match against diskidentifier hash, set Slot attribute per disk
+		    print "controller: $controllerId, encl: $enclosureId, slot: $slot, modell: $modell, serial: $serial\n" if $main::debug;
+		    $modell =~ s/\s*$//;
+		    $modell =~ s/^\S+\s+//i if $modell =~ /\s/;     # drop Manufacturer as in "WDC WD2000F9YZ-0" or "Hitachi HUA72302"
+		    $serial =~ s/\s*$//;
+		    foreach $currentdiskid ( keys %diskidenthash ) {
+			if ( $currentdiskid =~ /$modell.*\.$serial/i ) {
+			    print "found $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controllerId:$enclosureId:$slot\n" if $main::debug;
+			    foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) {
+				$smart->{$curdisk}{slotinfo} = "$controllertype:$controllerId:$enclosureId:$slot";
+			    }
+			} else {
+			    my $tempmodell;
+			    my $tempserial;
+			    ($tempmodell, $tempserial) = split (/\./, $currentdiskid);
+			    if ( "$modell\.$serial" =~ /$tempmodell.*\.$tempserial/i ) {
+				print "altfound $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controllerId:$enclosureId:$slot\n" if $main::debug;
+				foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) {
+				    $smart->{$curdisk}{slotinfo} = "$controllertype:$controllerId:$enclosureId:$slot";
+				}
+			    }
+			}
+		    }
+		    $inHD = 0;
+		    $serial = "";
+		    $modell = "";
+		    $slot = "";
+		    $complete = 0;
+		} elsif ( /^Drive.*Policies\/Settings :/ ) {
+		    $inHD = 0;
+                    $serial = "";
+                    $modell = "";
+                    $slot = "";
+                    $complete = 0;
+		}
+	    }
+	    close (PROGOUT);
+	}
     }
 }
 
