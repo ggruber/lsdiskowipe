@@ -49,8 +49,10 @@ for i in lsscsi lspci smartctl readlink sg_readcap nvme; do
 done
 
 # update the smartdrivedb
-if has_program update-smart-drivedb ; then
-	update-smart-drivedb
+if [ "$1" != "-C" ] ; then
+	if  has_program update-smart-drivedb ; then
+		update-smart-drivedb
+	fi
 fi
 
 # install the program's modules

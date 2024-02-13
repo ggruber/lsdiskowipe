@@ -3,7 +3,7 @@
 #
 # list disks and optionally wipe them
 #
-# (C) Alexander Pilch, Gerold Gruber, 2015 - 2023, licensed under the EUPL-1.2-or-later
+# (C) Alexander Pilch, Gerold Gruber, 2015 - 2024, licensed under the EUPL-1.2-or-later
 #
 
 use strict;
@@ -12,6 +12,7 @@ use POSIX qw/strftime/;
 use Data::Dumper;
 use Getopt::Std;
 use readSmartData;
+use getSlotInfo;
 use readNwipeLog;
 
 my $smartResult = {};
@@ -21,14 +22,17 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.7.1';
+$main::VERSION = '1.8.1';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
-my $r = getopts('vdfswb:B:', \%opts) or die "Bad options\n";
+my $r = getopts('vdDfswb:B:', \%opts) or die "Bad options\n";
 
 $main::verbose = $opts{'v'};
 $main::debug = $opts{'d'};
+$main::Debug = $opts{'D'};
+
+$main::SlotInfoAvailable = 0;
 my $force = $opts{'f'};
 my $supress = $opts{'s'};
 my $wipe = $opts{'w'};
@@ -55,6 +59,8 @@ foreach ( @blacklist, @uc_blacklist ) {
 
 readSmartData::readSmartData($smartResult, \@uc_blacklist);
 readSmartData::consolidateDrives($smartResult, $formathelper);
+getSlotInfo::getSlotInfo($smartResult);
+
 if ( not $force ) {
     print "\nAll mounted or blacklisted disks, md or zpool members are excluded.\n";
     print "Avoid this by using the -f (force) option.\n";
@@ -158,6 +164,7 @@ sub HELP_MESSAGE() {
 Usage: $0 [-v] [-d] [-f] [-w] [-b disk1[,disk2,...]] [-B disk3[,disk4,...]]
         -v              verbose output
         -d              debug output
+        -D              more debug output
         -f              force considering used disks (mounted, MD or zpool member)
         -s              force is default if no wiping requested: prevent this with -s
         -w              wipe: offer dialogue to start nwipe

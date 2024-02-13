@@ -35,7 +35,7 @@ sub readSmartData {
             if ( not $has_nvme ) {
                 $has_nvme = 1;
                 if ( not `sh -c "which nvme"` ) {
-		    die "required program \"nvme\" not found, run installer again";
+		    die "required program \"nvme\" not found, re-run installer";
 		}
             }
 	    my $id     = $1;
@@ -77,6 +77,7 @@ sub readSmartData {
 	# info on driver if verbose is requested
 	my $driver =  $ctrl{$host}{driver} ? $ctrl{$host}{driver} : 'unknown' ;
 	print "$hddId: hddId:driver $driver\n" if $main::verbose;
+	$smart->{$hddId}{driver} = $driver;
 	    
         if ( $ctrl{$host}{driver} eq "3w-9xxx" ) {
             foreach my $twHdd (@{ $ctrl{$host}{twData} }) {
@@ -100,6 +101,7 @@ sub readSmartData {
             "3w-sas"        => sub { @smartData = `smartctl -x -d 3ware,$hdd{$hddId}{id} /dev/$hddId` },
             "mptsas"        => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
             "mpt2sas"       => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
+            "mpt3sas"       => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
             "megaraid_sas"  => sub { @smartData = `smartctl -x -d megaraid,$hdd{$hddId}{id} /dev/$hddId` },
             "aacraid"       => sub { @smartData = `smartctl -x $hdd{$hddId}{scsi}` }
             # aacraid SAS does only work without -d sat. A solution for SATA and SAS still needs to be implemented.
@@ -114,6 +116,7 @@ sub readSmartData {
             "3w-sas"        => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{id} /dev/$hddId` },
             "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
             "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
+            "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
             "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l -d megaraid,$hdd{$hddId}{id} /dev/$hddId` },
             "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi}` }
         );
@@ -143,7 +146,7 @@ sub readSmartData {
 	$smart->{$hddId}{cryProtAct} = 'n/a'  until defined $smart->{$hddId}{cryProtAct};
 
         foreach my $line (@smartData) {
-	    print $line if $main::debug;
+	    print $line if $main::Debug;
             chomp $line;
             if ( $line =~ /Model\sFamily:\s+(.+)$/ or $line =~ /^Vendor:\s+(.+)$/i ) {
                 $smart->{$hddId}{vendor} = $1;
@@ -351,14 +354,14 @@ sub readSmartData {
             }
         }
         foreach my $line (@T10PI_Data) {
-	    print $line if $main::debug;
+	    print $line if $main::Debug;
             chomp $line;
             if ( $line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d),\s+p_i_exponent=(\d)\s+\[type \d protection\]/i ) {
-		print "A: \$1: $1 \$2: $2\n" if $main::debug;
+		print "T10PI_Data A: \$1: $1 \$2: $2\n" if $main::debug;
 		$smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
 		$smart->{$hddId}{cryProtAct} = 'yes';
             } elsif ($line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d)/i ) {
-		print "B: \$1: $1 \$2: $2\n" if $main::debug;
+		print "T10PI_Data B: \$1: $1 \$2: $2\n" if $main::debug;
 		$smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
 		$smart->{$hddId}{cryProtAct} = 'no';
 	    }
@@ -457,6 +460,7 @@ sub consolidateDrives {
 	    }
 	}
 	$diskIdentifier = $smart->{$disk}{vendor}.$smart->{$disk}{devModel}.$smart->{$disk}{serial};
+	$smart->{$disk}{diskIdentifier} = $diskIdentifier;
 	if( exists $uniqueVendorModelSerial{$diskIdentifier}) {
 	    # disk found another time
 	    $uniqueVendorModelSerial{$diskIdentifier} .= ", $disk";
@@ -472,7 +476,7 @@ sub consolidateDrives {
     }
     if ( $main::debug ) {
 	print "\n";
-	# print Dumper($formathelper);
+	print Dumper($formathelper) if $main::Debug;
 	print "maxPaths: $maxPaths\n";
     }
     $DPdiskcnt = 0;
@@ -484,7 +488,7 @@ sub consolidateDrives {
 	$pathCntOccurence[$uniqueVendorModelSerialCnt{$diskIdentifier}]++;
     }
     print "diskcnt: $DPdiskcnt\n" if ( $main::verbose or $main::debug );
-    print Dumper(@pathCntOccurence) if $main::debug;
+    print Dumper(@pathCntOccurence) if $main::Debug;
     for ($i = 1; $i <= $maxPaths; $i++ ) {
 	my $pCOi = (defined $pathCntOccurence[$i]) ? $pathCntOccurence[$i] : 0;
 	print "pathcnt $i : $pCOi disks\n" if $main::debug;
@@ -520,40 +524,75 @@ sub consolidateDrives {
     }
 }
 
+
 sub printSmartData {
     my $smart = $_[0];
     my $formathelper = $_[1];
     # original static version
     # my $outFormat =        "%-7s %-10s %-30s %-24s %-15s %-8s %-9s %-11s %-5s %-8s %-8s %-7s %-4s %-13s\n";
     # dynamic column width
-    my $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
-       $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
-       $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-    printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
-		       "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
+    my $outFormat;
+
+    if ( $main::SlotInfoAvailable ) {
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-11s %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+            $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
+            $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
+	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
+			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
+    } else {
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+            $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
+            $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
+	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
+			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
+    }
 
     foreach my $disk ( sort sortDiskNames keys %$smart ) {
 
-        printf $outFormat,
-          $disk,
-          defined $smart->{$disk}{vendor}      ? $smart->{$disk}{vendor}      : "",
-          defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
-          defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
-          defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
-          defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
-          defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
-          defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
-          defined $smart->{$disk}{transport}   ? $smart->{$disk}{transport}   : "",
-          defined $smart->{$disk}{ifSpeed}     ? $smart->{$disk}{ifSpeed}     : "",
-          defined $smart->{$disk}{rotation}    ? $smart->{$disk}{rotation}    : "",
-	  defined $smart->{$disk}{sectSize}    ? $smart->{$disk}{sectSize}    : "",
-          defined $smart->{$disk}{health}      ? $smart->{$disk}{health}      : "",
-          defined $smart->{$disk}{reallocSect} ? $smart->{$disk}{reallocSect} : "",
-          defined $smart->{$disk}{powOnHours}  ? $smart->{$disk}{powOnHours}  : "",
-          defined $smart->{$disk}{temp}        ? $smart->{$disk}{temp}        : "",
-          defined $smart->{$disk}{pctRemaining}? $smart->{$disk}{pctRemaining}: "",
-          defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "",
-          defined $smart->{$disk}{pendsect}    ? $smart->{$disk}{pendsect}    : "";
+	if ( $main::SlotInfoAvailable ) {
+	    printf $outFormat,
+	      $disk,
+	      defined $smart->{$disk}{vendor}      ? $smart->{$disk}{vendor}      : "",
+	      defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
+	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
+	      defined $smart->{$disk}{slotinfo}    ? $smart->{$disk}{slotinfo}    : "n/a",
+	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
+	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
+	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
+	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
+	      defined $smart->{$disk}{transport}   ? $smart->{$disk}{transport}   : "",
+	      defined $smart->{$disk}{ifSpeed}     ? $smart->{$disk}{ifSpeed}     : "",
+	      defined $smart->{$disk}{rotation}    ? $smart->{$disk}{rotation}    : "",
+	      defined $smart->{$disk}{sectSize}    ? $smart->{$disk}{sectSize}    : "",
+	      defined $smart->{$disk}{health}      ? $smart->{$disk}{health}      : "",
+	      defined $smart->{$disk}{reallocSect} ? $smart->{$disk}{reallocSect} : "",
+	      defined $smart->{$disk}{powOnHours}  ? $smart->{$disk}{powOnHours}  : "",
+	      defined $smart->{$disk}{temp}        ? $smart->{$disk}{temp}        : "",
+	      defined $smart->{$disk}{pctRemaining}? $smart->{$disk}{pctRemaining}: "",
+	      defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "",
+	      defined $smart->{$disk}{pendsect}    ? $smart->{$disk}{pendsect}    : "";
+	} else {
+	    printf $outFormat,
+	      $disk,
+	      defined $smart->{$disk}{vendor}      ? $smart->{$disk}{vendor}      : "",
+	      defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
+	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
+	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
+	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
+	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
+	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
+	      defined $smart->{$disk}{transport}   ? $smart->{$disk}{transport}   : "",
+	      defined $smart->{$disk}{ifSpeed}     ? $smart->{$disk}{ifSpeed}     : "",
+	      defined $smart->{$disk}{rotation}    ? $smart->{$disk}{rotation}    : "",
+	      defined $smart->{$disk}{sectSize}    ? $smart->{$disk}{sectSize}    : "",
+	      defined $smart->{$disk}{health}      ? $smart->{$disk}{health}      : "",
+	      defined $smart->{$disk}{reallocSect} ? $smart->{$disk}{reallocSect} : "",
+	      defined $smart->{$disk}{powOnHours}  ? $smart->{$disk}{powOnHours}  : "",
+	      defined $smart->{$disk}{temp}        ? $smart->{$disk}{temp}        : "",
+	      defined $smart->{$disk}{pctRemaining}? $smart->{$disk}{pctRemaining}: "",
+	      defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "",
+	      defined $smart->{$disk}{pendsect}    ? $smart->{$disk}{pendsect}    : "";
+	}
     }
 }
 
