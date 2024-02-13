@@ -76,7 +76,7 @@ sub sltinf_sas23ircu {
     my $complete;
     my $enclosure;
     my $slot;
-    my $model;
+    my $modell;
     my $serial;
     my $currentdiskid;
 
@@ -89,7 +89,7 @@ sub sltinf_sas23ircu {
 	$smart->{$disk}{serial} = "" unless $smart->{$disk}{serial};
 	if ( $smart->{$disk}{vendor} eq "" or $smart->{$disk}{devModel} eq "" or $smart->{$disk}{serial} eq "" ) {
 	    print "Warning: disk $disk no vendor ( $smart->{$disk}{vendor} ) or 
-	           no model ( $smart->{$disk}{devModel} or no serial ( $smart->{$disk}{serial}\n";
+	           no modell ( $smart->{$disk}{devModel} or no serial ( $smart->{$disk}{serial}\n";
 	}
 	# $diskidentifier = $smart->{$disk}{vendor}.$smart->{$disk}{devModel}.$smart->{$disk}{serial};	# drop vendor, as SATA disks don't show one
 	$serial = $smart->{$disk}{serial};
@@ -305,7 +305,7 @@ sub sltinf_sas23ircu {
 	$complete = 0;
 	$enclosure = "";
 	$slot = "";
-	$model = "";
+	$modell = "";
 	$serial = "";
 
 	while (<PROGOUT>) {
@@ -319,11 +319,11 @@ sub sltinf_sas23ircu {
 		$inHD = 0;
 		$enclosure = "";
 		$slot = "";
-		$model = "";
+		$modell = "";
 		$serial = "";
 		if ( $complete == 0 ) {
 			print "incomplete information for disk: ";
-			print "encl: $enclosure, slot: $slot, model: $model, serial: $serial\n";
+			print "encl: $enclosure, slot: $slot, modell: $modell, serial: $serial\n";
 		}
 		$complete = 0;
 	    }
@@ -334,26 +334,36 @@ sub sltinf_sas23ircu {
 		$slot = $1;
 	    }
 	    elsif ( /^\s+Model Number\s+:\s+(\S+.*)$/i ) {
-		$model = $1;
+		$modell = $1;
 	    }
 	    elsif ( /^\s+Serial No\s+:\s+(\S+.*)$/i ) {
 		$serial = $1;
 	    }
-	    elsif ( $complete == 0 and length $enclosure and length $slot and length $model and length $serial  ) {
+	    elsif ( $complete == 0 and length $enclosure and length $slot and length $modell and length $serial  ) {
 		# we have all infos for a disk we look for
 		$complete = 1;
     # match against diskidentifier hash, set Slot attribute per disk
-		print "controller: $controller, encl: $enclosure, slot: $slot, model: $model, serial: $serial\n" if $main::debug;
-		$model =~ s/\s*$//;
-		$model =~ s/^\S+\s+//i if $model =~ /\s/;	# drop Manufacturer as in "WDC WD2000F9YZ-0" or "Hitachi HUA72302"
+		print "controller: $controller, encl: $enclosure, slot: $slot, modell: $modell, serial: $serial\n" if $main::debug;
+		$modell =~ s/\s*$//;
+		$modell =~ s/^\S+\s+//i if $modell =~ /\s/;	# drop Manufacturer as in "WDC WD2000F9YZ-0" or "Hitachi HUA72302"
 		$serial =~ s/\s*$//;
 		foreach $currentdiskid ( keys %diskidenthash ) {
-		    if ( $currentdiskid =~ /$model.*\.$serial/i ) {
+		    if ( $currentdiskid =~ /$modell.*\.$serial/i ) {
 			print "found $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controller:$enclosure:$slot\n" if $main::debug;
 			foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) { 
 			    $smart->{$curdisk}{slotinfo} = "$controllertype:$controller:$enclosure:$slot";
 			}
-		    } 
+		    } else {
+			my $tempmodell;
+			my $tempserial;
+			($tempmodell, $tempserial) = split (/\./, $currentdiskid);
+			if ( "$modell\.$serial" =~ /$tempmodell.*\.$tempserial/i ) {
+			    print "altfound $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controller:$enclosure:$slot\n" if $main::debug;
+			    foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) {
+				$smart->{$curdisk}{slotinfo} = "$controllertype:$controller:$enclosure:$slot";
+			    }
+			}
+		    }
 		}
 	    }
 	        
