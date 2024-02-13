@@ -221,6 +221,21 @@ sub readSmartData {
 	    }
             elsif ( $line =~ /Transport protocol:\s+SAS.*$/ ) {
                 $smart->{$hddId}{transport} = "sas";
+		if ( $line =~ /Transport protocol:\s+SAS\s+\((SPL-[1-5])\)/i ) {
+		    my $SASstd = $1;
+		    print "SASstd $SASstd\n" if $main::verbose;
+		    if ( $SASstd eq "SPL-1" ) {
+		        $smart->{$hddId}{ifSpeed} = "3Gbit/s";
+		    } elsif ( $SASstd eq "SPL-2" ) {
+		        $smart->{$hddId}{ifSpeed} = "6Gbit/s";
+		    } elsif ( $SASstd eq "SPL-3" ) {
+		        $smart->{$hddId}{ifSpeed} = "12Gbit/s";
+		    } elsif ( $SASstd eq "SPL-4" ) {
+		        $smart->{$hddId}{ifSpeed} = "22.5Gbit/s";
+		    } elsif ( $SASstd eq "SPL-5" ) {
+		        $smart->{$hddId}{ifSpeed} = "45Gbit/s";
+		    }
+		}
             }
             elsif ( $line =~ /SMART\soverall-health.+:\s+(\w+)$/i ) {
                 $smart->{$hddId}{health} = $1;
