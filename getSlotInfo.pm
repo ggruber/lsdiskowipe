@@ -88,8 +88,9 @@ sub sltinf_sas23ircu {
 	$smart->{$disk}{devModel} = "" unless $smart->{$disk}{devModel};
 	$smart->{$disk}{serial} = "" unless $smart->{$disk}{serial};
 	if ( $smart->{$disk}{vendor} eq "" or $smart->{$disk}{devModel} eq "" or $smart->{$disk}{serial} eq "" ) {
-	    print "Warning: disk $disk no vendor ( $smart->{$disk}{vendor} ) or 
-	           no modell ( $smart->{$disk}{devModel} or no serial ( $smart->{$disk}{serial}\n";
+	    # Warning here, but will eventually be fixed in consolidateDrives
+	    print "Warning: disk $disk no vendor ($smart->{$disk}{vendor}) or no modell ($smart->{$disk}{devModel})" .
+		  " or no serial ($smart->{$disk}{serial})\n" if $main::debug;
 	}
 	# $diskidentifier = $smart->{$disk}{vendor}.$smart->{$disk}{devModel}.$smart->{$disk}{serial};	# drop vendor, as SATA disks don't show one
 	$serial = $smart->{$disk}{serial};
@@ -104,8 +105,11 @@ sub sltinf_sas23ircu {
     my $controller;
 
     if ( not `sh -c "which $infprog"` ) {
-	die "required program \"$infprog\" not found, install it to continue\n";
+	print "ERROR: required program \"$infprog\" not found, -> install it to continue. Aborting!\n";
+	exit 2;
     }
+
+    print "getting # of installed controllers from $infprog\n"  if $main::verbose;
     open (PROGOUT, "$infprog LIST |" || die "getting controllercount from $infprog failed");
 # expected output
 # LSI Corporation SAS2 IR Configuration Utility.
@@ -131,7 +135,7 @@ sub sltinf_sas23ircu {
 	}
     }
     close (PROGOUT);
-    print "$infprog Controllers found ( " . scalar @controlleridxs ." ), index: @controlleridxs\n"  if $main::debug;
+    print "$infprog Controllers found ( " . scalar @controlleridxs ." ), index: @controlleridxs\n"  if $main::verbose;
     # get diskidentifier per slot
     foreach $controller ( @controlleridxs ) {
 	print "$infprog: reading controller $controller\n" if $main::verbose;
@@ -351,7 +355,8 @@ sub sltinf_sas23ircu {
 		    if ( $currentdiskid =~ /$modell.*\.$serial/i ) {
 			print "found $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controller:$enclosure:$slot\n" if $main::debug;
 			foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) { 
-			    $smart->{$curdisk}{slotinfo} = "$controllertype:$controller:$enclosure:$slot";
+			    # consider multipathing
+			    $smart->{$curdisk}{slotinfo} .= $smart->{$curdisk}{slotinfo} ? ", $controllertype:$controller:$enclosure:$slot" : "$controllertype:$controller:$enclosure:$slot";
 			}
 		    } else {
 			my $tempmodell;
@@ -360,7 +365,8 @@ sub sltinf_sas23ircu {
 			if ( "$modell\.$serial" =~ /$tempmodell.*\.$tempserial/i ) {
 			    print "altfound $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controller:$enclosure:$slot\n" if $main::debug;
 			    foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) {
-				$smart->{$curdisk}{slotinfo} = "$controllertype:$controller:$enclosure:$slot";
+				# consider multipathing
+				$smart->{$curdisk}{slotinfo} .= $smart->{$curdisk}{slotinfo} ? ", $controllertype:$controller:$enclosure:$slot" : "$controllertype:$controller:$enclosure:$slot";
 			    }
 			}
 		    }
@@ -419,8 +425,10 @@ sub sltinf_storcli {
     my $controllerId;
 
     if ( not `sh -c "which $infprog"` ) {
-	die "required program \"$infprog\" not found, install it to continue\n";
+	print "ERROR: required program \"$infprog\" not found, -> install it to continue. Aborting!\n";
+	exit 2;
     }
+    print "getting # of installed controllers from $infprog\n"  if $main::verbose;
     open (PROGOUT, "$infprog show ctrlcount |" || die "getting controllercount from $infprog failed");
     while (<PROGOUT>) {
 	chomp;
@@ -568,7 +576,8 @@ sub sltinf_storcli {
 			if ( $currentdiskid =~ /$modell.*\.$serial/i ) {
 			    print "found $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controllerId:$enclosureId:$slot\n" if $main::debug;
 			    foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) {
-				$smart->{$curdisk}{slotinfo} = "$controllertype:$controllerId:$enclosureId:$slot";
+				# consider multipathing
+				$smart->{$curdisk}{slotinfo} .= $smart->{$curdisk}{slotinfo} ? ", $controllertype:$controllerId:$enclosureId:$slot" : "$controllertype:$controllerId:$enclosureId:$slot";
 			    }
 			} else {
 			    my $tempmodell;
@@ -577,7 +586,8 @@ sub sltinf_storcli {
 			    if ( "$modell\.$serial" =~ /$tempmodell.*\.$tempserial/i ) {
 				print "altfound $diskidenthash{$currentdiskid} at T:C:E:S: $controllertype:$controllerId:$enclosureId:$slot\n" if $main::debug;
 				foreach my $curdisk ( split ( /, /, $diskidenthash{$currentdiskid} ) ) {
-				    $smart->{$curdisk}{slotinfo} = "$controllertype:$controllerId:$enclosureId:$slot";
+				    # consider multipathing
+				    $smart->{$curdisk}{slotinfo} .= $smart->{$curdisk}{slotinfo} ? ", $controllertype:$controllerId:$enclosureId:$slot" : "$controllertype:$controllerId:$enclosureId:$slot";
 				}
 			    }
 			}

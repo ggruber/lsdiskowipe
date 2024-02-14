@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.8.3';
+$main::VERSION = '1.8.5';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -58,8 +58,8 @@ foreach ( @blacklist, @uc_blacklist ) {
 }
 
 readSmartData::readSmartData($smartResult, \@uc_blacklist);
-readSmartData::consolidateDrives($smartResult, $formathelper);
 getSlotInfo::getSlotInfo($smartResult);
+readSmartData::consolidateDrives($smartResult, $formathelper);
 
 if ( not $force ) {
     print "\nAll mounted or blacklisted disks, md or zpool members are excluded.\n";

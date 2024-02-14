@@ -210,11 +210,11 @@ sub readSmartData {
                 $smart->{$hddId}{transport} = "sas";
 		if ( $line =~ /Transport protocol:\s+SAS\s+\((SPL-[1-5])\)/i ) {
 		    my $SASstd = $1;
-		    print "SASstd $SASstd\n" if $main::verbose;
+		    print "SASstd $SASstd\n" if $main::debug;
 		    if ( $SASstd eq "SPL-1" ) {
-		        $smart->{$hddId}{ifSpeed} = "3Gbit/s";
+		        $smart->{$hddId}{ifSpeed} = "3 Gbit/s";
 		    } elsif ( $SASstd eq "SPL-2" ) {
-		        $smart->{$hddId}{ifSpeed} = "6Gbit/s";
+		        $smart->{$hddId}{ifSpeed} = "6 Gbit/s";
 		    } elsif ( $SASstd eq "SPL-3" ) {
 		        $smart->{$hddId}{ifSpeed} = "12Gbit/s";
 		    } elsif ( $SASstd eq "SPL-4" ) {
@@ -430,6 +430,7 @@ sub consolidateDrives {
 	vendor      => "VENDOR",
 	devModel    => "MODEL",
 	serial      => "SERIAL",
+	slotinfo    => "CT:C:E:Slot",
 	firmware    => "FIRMWARE",
 	ifSpeed     => "IFSPEED",
 	reallocSect => "SECTORS",
@@ -563,8 +564,8 @@ sub printSmartData {
     my $outFormat;
 
     if ( $main::SlotInfoAvailable ) {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-11s %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
-            $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+            $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware},
             $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
 	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
 			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
