@@ -274,6 +274,9 @@ sub readSmartData {
                 elsif ( $line =~ /.+\sAirflow_Temperature_Cel[^(]+\s(\d+)$/i ) {
                     $smart->{$hddId}{temp} = $1;
                 }
+                elsif ( $line =~ /.+\sAirflow_Temperature_Cel[^(]+\s(\d+)\s+\([^)]+\)\s*$/i ) {
+                    $smart->{$hddId}{temp} = $1;
+                }
                 elsif ( $line =~ /.+\sTemperature_Celsius[^(]+\s(\d+)/i ) {
                     $smart->{$hddId}{temp} = $1;
                 }
