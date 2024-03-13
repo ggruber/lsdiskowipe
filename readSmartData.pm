@@ -74,6 +74,7 @@ sub readSmartData {
         my @smartData;
 	my @T10PI_Data;
 	my @HPA_Data;
+	my @DCO_Data;
 	my $SASignoreNextIFSpeed = 0;
         my $host       = $hdd{$hddId}{host};
 	print "$hddId\{$host\} " if $main::debug;
@@ -138,6 +139,20 @@ sub readSmartData {
             "mpt3sas"       => sub { @HPA_Data = `hdparm -N /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
             "megaraid_sas"  => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
             "aacraid"       => sub { @HPA_Data = `hdparm -N $hdd{$hddId}{scsi} 2>/dev/null` }
+        );
+
+	my %ctrlChoice4 = (
+            "ahci"          => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
+            "nvme"          => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
+            "uas"           => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
+	    "usb-storage"   => sub { @DCO_Data = `hdparm --dco-identify /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "3w-9xxx"       => sub { @DCO_Data = `hdparm --dco-identify -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
+            "3w-sas"        => sub { @DCO_Data = `hdparm --dco-identify -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
+            "mptsas"        => sub { @DCO_Data = `hdparm --dco-identify /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt2sas"       => sub { @DCO_Data = `hdparm --dco-identify /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt3sas"       => sub { @DCO_Data = `hdparm --dco-identify /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "megaraid_sas"  => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
+            "aacraid"       => sub { @DCO_Data = `hdparm --dco-identify $hdd{$hddId}{scsi} 2>/dev/null` }
         );
 
         
@@ -421,7 +436,7 @@ sub readSmartData {
 	}
 
 	#
-	# info about host protected areas
+	# info about Host Protected Areas
 	#
 	$smart->{$hddId}{HPA} = ' - ' until defined $smart->{$hddId}{HPA};
         if ( defined $ctrlChoice3{ $ctrl{$host}{driver} } ) {
@@ -439,6 +454,33 @@ sub readSmartData {
 	    }
         } else {
 	    print "Unimplemented Controller: $ctrl{$host}{driver} for HPA check, please file a feature request for it.\n";
+	}
+
+	#
+	# info about Device Configuration Overlay
+	#
+	$smart->{$hddId}{DCO} = ' - ' until defined $smart->{$hddId}{DCO};
+        if ( defined $ctrlChoice4{ $ctrl{$host}{driver} } ) {
+            #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
+            $ctrlChoice4{ $ctrl{$host}{driver} }->();
+	    # if there are some slow SAS disks show activity
+            print "`";
+	    foreach my $line (@DCO_Data) {
+		print "DCO: $line" if $main::Debug;
+		chomp $line;
+		if ( $line =~ /DCO Checksum verified/i ) {
+		    $smart->{$hddId}{DCO} = "yes";
+		} elsif ( $line =~ /DCO Revision: (0x[0-9a-z]+)/i ) {
+		    $smart->{$hddId}{DCOrevision} = $1;
+		} elsif ( $line =~ /Real max sectors: ([1-9][0-9]*)/i ) {
+		    $smart->{$hddId}{DCOsectors} = $1;
+		}
+	    }
+	    if ( $smart->{$hddId}{DCO} eq "yes" ) {
+	        print "DCO: $smart->{$hddId}{DCO}, DCOrevision: $smart->{$hddId}{DCOrevision}, DCOsectors: $smart->{$hddId}{DCOsectors}\n" if $main::debug;
+	    }
+        } else {
+	    print "Unimplemented Controller: $ctrl{$host}{driver} for DCO check, please file a feature request for it.\n";
 	}
 
     }
@@ -610,17 +652,17 @@ sub printSmartData {
     my $outFormat;
 
     if ( $main::SlotInfoAvailable ) {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
             $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware},
             $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "HPA", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
-			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
+	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT",
+			   "IFSPEED", "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
     } else {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
             $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
             $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "HPA", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
-			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
+	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT",
+			   "IFSPEED", "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
     }
 
     foreach my $disk ( sort sortDiskNames keys %$smart ) {
@@ -634,6 +676,7 @@ sub printSmartData {
 	      defined $smart->{$disk}{slotinfo}    ? $smart->{$disk}{slotinfo}    : "n/a",
 	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
 	      defined $smart->{$disk}{HPA}         ? $smart->{$disk}{HPA}         : "",
+	      defined $smart->{$disk}{DCO}         ? $smart->{$disk}{DCO}         : "",
 	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
 	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
 	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
