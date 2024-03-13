@@ -1,3 +1,7 @@
+#
+# get basic (and some extended) information from every single disk
+#
+
 package readSmartData;
 use strict;
 use warnings;
@@ -12,7 +16,7 @@ sub readSmartData {
     my $smart          = $_[0];	# ptr to smart data structure
     my $uc_blacklist   = $_[1]; # ptr to unconditional blacklist
     my @controllerData = `lsscsi -H`;
-    my @hddData        = `lsscsi -g`;
+    my @hddData        = `lsscsi -g`;	# lists virtual disks on RAID Controllers if not in HBA/JBOD mode
     my %hdd;
     my %ctrl;
     my $twa = 0;
@@ -69,6 +73,7 @@ sub readSmartData {
     foreach my $hddId ( sort sortDiskNames keys %hdd ) {
         my @smartData;
 	my @T10PI_Data;
+	my @HPA_Data;
 	my $SASignoreNextIFSpeed = 0;
         my $host       = $hdd{$hddId}{host};
 	print "$hddId\{$host\} " if $main::debug;
@@ -108,17 +113,31 @@ sub readSmartData {
         );
 
 	my %ctrlChoice2 = (
-            "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
-            "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
-            "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
-	    "usb-storage"   => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
-            "3w-9xxx"       => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa}` },
-            "3w-sas"        => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{id} /dev/$hddId` },
-            "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
-            "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
-            "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi}` },
-            "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId` },
-            "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi}` }
+            "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
+            "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
+            "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
+	    "usb-storage"   => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "3w-9xxx"       => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
+            "3w-sas"        => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
+            "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
+            "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi} 2>/dev/null` }
+        );
+
+	my %ctrlChoice3 = (
+            "ahci"          => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
+            "nvme"          => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
+            "uas"           => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
+	    "usb-storage"   => sub { @HPA_Data = `hdparm -N /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "3w-9xxx"       => sub { @HPA_Data = `hdparm -N -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
+            "3w-sas"        => sub { @HPA_Data = `hdparm -N -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
+            "mptsas"        => sub { @HPA_Data = `hdparm -N /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt2sas"       => sub { @HPA_Data = `hdparm -N /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt3sas"       => sub { @HPA_Data = `hdparm -N /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "megaraid_sas"  => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
+            "aacraid"       => sub { @HPA_Data = `hdparm -N $hdd{$hddId}{scsi} 2>/dev/null` }
         );
 
         
@@ -286,7 +305,7 @@ sub readSmartData {
                 elsif ( $line =~ /ATA\sError\sCount:\s+(\d+).*$/i ) {
                     $smart->{$hddId}{numErr} = $1;
                 }
-                elsif ( $line =~ /UDMA.CRC.Error.Count\s+.*(\d+)\s*$/i ) {
+                elsif ( $line =~ /CRC.Error.Count\s+.*(\d+)\s*$/i ) {
                     if ( undef $smart->{$hddId}{numErr} or not $smart->{$hddId}{numErr} ) {
                         $smart->{$hddId}{numErr} = $1;
                    }
@@ -372,6 +391,9 @@ sub readSmartData {
 #	    next;
 #	}
 
+	#
+	# gather info about self encrypting drives
+	#
 	$smart->{$hddId}{has_cryProt} = 'n/a' until defined $smart->{$hddId}{has_cryProt};
 	$smart->{$hddId}{cryProtAct} = 'n/a'  until defined $smart->{$hddId}{cryProtAct};
 
@@ -380,24 +402,45 @@ sub readSmartData {
             $ctrlChoice2{ $ctrl{$host}{driver} }->();
 	    # if there are some slow SAS disks show activity
             print "'";
+	    foreach my $line (@T10PI_Data) {
+		#print $line if $main::Debug;
+		chomp $line;
+		if ( $line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d),\s+p_i_exponent=(\d)\s+\[type \d protection\]/i ) {
+		    print "T10PI_Data A: \$1: $1 \$2: $2\n" if $main::debug;
+		    $smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
+		    $smart->{$hddId}{cryProtAct} = 'yes';
+		} elsif ($line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d)/i ) {
+		    print "T10PI_Data B: \$1: $1 \$2: $2\n" if $main::debug;
+		    $smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
+		    $smart->{$hddId}{cryProtAct} = 'no';
+		}
+	    }
+
         } else {
-	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
-	    next;
+	    print "Unimplemented Controller: $ctrl{$host}{driver} for cryto check, please file a feature request for it.\n";
 	}
 
-        foreach my $line (@T10PI_Data) {
-	    print $line if $main::Debug;
-            chomp $line;
-            if ( $line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d),\s+p_i_exponent=(\d)\s+\[type \d protection\]/i ) {
-		print "T10PI_Data A: \$1: $1 \$2: $2\n" if $main::debug;
-		$smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
-		$smart->{$hddId}{cryProtAct} = 'yes';
-            } elsif ($line =~ /^\s+Protection:\s+prot_en=(\d),\s+p_type=(\d)/i ) {
-		print "T10PI_Data B: \$1: $1 \$2: $2\n" if $main::debug;
-		$smart->{$hddId}{has_cryProt} = ( $1 != 0 or $2 != 0 ) ? 'yes' : 'no';
-		$smart->{$hddId}{cryProtAct} = 'no';
+	#
+	# info about host protected areas
+	#
+	$smart->{$hddId}{HPA} = ' - ' until defined $smart->{$hddId}{HPA};
+        if ( defined $ctrlChoice3{ $ctrl{$host}{driver} } ) {
+            #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
+            $ctrlChoice3{ $ctrl{$host}{driver} }->();
+	    # if there are some slow SAS disks show activity
+            print ",";
+	    foreach my $line (@HPA_Data) {
+		#print $line if $main::Debug;
+		chomp $line;
+		if ( $line =~ /^\s+max\ssectors\s+=\s+(\d+)\/(\d+),\s+HPA\sis\s(\S+abled)\s*/i ) {
+		    print "HPA_Data A: \$1: $1 \$2: $2 \$3: $3\n" if $main::debug;
+		    $smart->{$hddId}{HPA} = ( $3 =~ /enabled/i ) ? "yes" : "no";
+		}
 	    }
+        } else {
+	    print "Unimplemented Controller: $ctrl{$host}{driver} for HPA check, please file a feature request for it.\n";
 	}
+
     }
     # get bus speed for nvmes
     foreach my $cnvme ( @nvmedisks ) {
@@ -567,16 +610,16 @@ sub printSmartData {
     my $outFormat;
 
     if ( $main::SlotInfoAvailable ) {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
             $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware},
             $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
+	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "HPA", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
 			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
     } else {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
+        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
             $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
             $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
+	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "HPA", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT", "IFSPEED",
 			   "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
     }
 
@@ -590,6 +633,7 @@ sub printSmartData {
 	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
 	      defined $smart->{$disk}{slotinfo}    ? $smart->{$disk}{slotinfo}    : "n/a",
 	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
+	      defined $smart->{$disk}{HPA}         ? $smart->{$disk}{HPA}         : "",
 	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
 	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
 	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
@@ -611,6 +655,7 @@ sub printSmartData {
 	      defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
 	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
 	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
+	      defined $smart->{$disk}{HPA}         ? $smart->{$disk}{HPA}         : "",
 	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
 	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
 	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",

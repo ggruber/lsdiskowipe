@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.8.5';
+$main::VERSION = '1.9.1';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -44,8 +44,8 @@ my @uc_blacklist = split ( ",", $opts{'B'}) if $opts{'B'};  # unconditional blac
 $force = 1 if ( ! $wipe and ! $supress );
 
 # check required programs
-foreach ( split (/ /, "lsscsi lspci smartctl readlink sg_readcap") ) {
-    if ( not `sh -c "which $_"` ) {
+foreach ( split (/ /, "lsscsi lspci smartctl readlink sg_readcap hdparm") ) {
+    if ( not `sh -c "which $_ 2>/dev/null"` ) {
 	    die "required program \"$_\" not found, run installer again";
     }
 }
@@ -172,6 +172,11 @@ Usage: $0 [-v] [-d] [-f] [-w] [-b disk1[,disk2,...]] [-B disk3[,disk4,...]]
         -B /dev/sdz     unconditionlly blacklist disk: will not be considered at all
         --help          this information
         --version       version information
+
+Output abbreviations:
+        CT:C:E:Slot     ControllerType:Controller#:Enclosure:Slot
+        HPA             Host Protected Area
+        DCO             Device Configuration Overlay
 EoHELP
 
 }
