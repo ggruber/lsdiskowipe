@@ -449,7 +449,12 @@ sub readSmartData {
 		chomp $line;
 		if ( $line =~ /^\s+max\ssectors\s+=\s+(\d+)\/(\d+),\s+HPA\sis\s(\S+abled)\s*/i ) {
 		    print "HPA_Data A: \$1: $1 \$2: $2 \$3: $3\n" if $main::debug;
+		    $smart->{$hddId}{HPAavail} = $1;
+		    $smart->{$hddId}{HPAmax} = $2;
 		    $smart->{$hddId}{HPA} = ( $3 =~ /enabled/i ) ? "yes" : "no";
+		    if ( $smart->{$hddId}{HPAavail} and $smart->{$hddId}{HPAavail} != $smart->{$hddId}{HPAmax} ) {
+			print "$hddId: HPAavail($smart->{$hddId}{HPAavail}) != HPAmax($smart->{$hddId}{HPAmax})\n"
+		    }
 		}
 	    }
         } else {
@@ -474,6 +479,14 @@ sub readSmartData {
 		    $smart->{$hddId}{DCOrevision} = $1;
 		} elsif ( $line =~ /Real max sectors: ([1-9][0-9]*)/i ) {
 		    $smart->{$hddId}{DCOsectors} = $1;
+		    if ( defined $smart->{$hddId}{HPAmax} and $smart->{$hddId}{HPAmax} > 1
+						      and $smart->{$hddId}{DCOsectors} > 1 ) {
+			if ( $smart->{$hddId}{HPAmax} != $smart->{$hddId}{DCOsectors} ) {
+			    print "$hddId: HPAmax != DCOsectors\n" if $main::verbose;
+			} else {
+			    print "$hddId: HPAmax == DCOsectors == $smart->{$hddId}{HPAmax}\n" if $main::verbose;
+			}
+		    }
 		}
 	    }
 	    if ( $smart->{$hddId}{DCO} eq "yes" ) {
