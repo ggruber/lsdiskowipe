@@ -10,9 +10,15 @@ has_program() {
 }
 
 if [ "$( whoami )" != "root" ] ; then
-	echo "$0: I must run with root priviledges, which is apparently not the case."
+	echo "${0}: I must run with root priviledges, which is apparently not the case."
 	echo Aborting.
 	exit 1
+fi
+
+# perl must be avaiable
+if ! has_program perl ; then
+	echo "${0}: perl not found, aborting";
+	exit 255;
 fi
 
 # intended to work on different platforms
@@ -54,10 +60,22 @@ if [ "$1" != "-C" ] ; then
 fi
 
 # install the program's modules
-if [ ! -d /usr/local/lib/site_perl ] ; then
-	mkdir -p /usr/local/lib/site_perl
+MODPATH=$( perl -e '@modpath=grep(/local/, @INC); print $modpath[$#modpath]' )
+
+# use a subdirectory for our modules
+MODPATH=$MODPATH/lsdiskowipe
+
+if [ "y$MODPATH" == "y" ] ; then
+	echo "${0}: could not determine the local path for dropping perl modules"
+	echo "aborting"
+	exit 254
 fi
 
-cp -p *.pm /usr/local/lib/site_perl
+
+if [ ! -d $MODPATH ] ; then
+	mkdir -p $MODPATH
+fi
+
+cp -p *.pm $MODPATH
 
 echo done.

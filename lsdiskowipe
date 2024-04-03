@@ -22,11 +22,15 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.9.3';
+$main::VERSION = '1.9.4';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
 my $r = getopts('vdDfswb:B:', \%opts) or die "Bad options\n";
+
+# 
+my $requiredTools = "lsscsi lspci smartctl readlink sg_readcap hdparm";
+# zpool ist not in this list, not needed for functionality
 
 $main::verbose = $opts{'v'};
 $main::debug = $opts{'d'};
@@ -44,7 +48,7 @@ my @uc_blacklist = split ( ",", $opts{'B'}) if $opts{'B'};  # unconditional blac
 $force = 1 if ( ! $wipe and ! $supress );
 
 # check required programs
-foreach ( split (/ /, "lsscsi lspci smartctl readlink sg_readcap hdparm") ) {
+foreach ( split (/ /, $requiredTools ) ) {
     if ( not `sh -c "which $_ 2>/dev/null"` ) {
 	    die "required program \"$_\" not found, run installer again";
     }
@@ -81,7 +85,7 @@ foreach ( @blacklist ) {
 # exclude HDDs that are part of a software array
 my @md = `cat /proc/mdstat`;
 # exclude HDDs that are part of a zpool
-my @zpool = `if [ \$( which zpool ) ] ; then zpool status -LPv ; fi`;
+my @zpool = `if [ \$( which zpool 2>/dev/null ) ] ; then zpool status -LPv ; fi`;
 
 if ( not $force ) {
     foreach $key (sort keys %$smartResult) {
