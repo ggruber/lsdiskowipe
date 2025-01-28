@@ -17,16 +17,17 @@ sub getSlotInfo {
     my %controllerInfo;
     my %controllerMgmt = (
 	"ahci"         => "sltinf_none",
+	"ata_piix"     => "sltinf_none",
 	"nvme"         => "sltinf_none",
 	"uas"          => "sltinf_none",
 	"usb-storage"  => "sltinf_none",
-	"3w-9xxx"      => "unimplemented",  # twcli
-	"3w-sas"       => "unimplemented",  # twcli
-	"mptsas"       => "unimplemented",  # lsimega or megacli?
+	"3w-9xxx"      => "unimplemented",   # twcli
+	"3w-sas"       => "unimplemented",   # twcli
+	"mptsas"       => "sltinf_lsiutil",  # lsiutil or lsimega or megacli?
 	"mpt2sas"      => "sltinf_sas23ircu",
 	"mpt3sas"      => "sltinf_sas23ircu",
-	"megaraid_sas" => "sltinf_storcli", # storcli
-	"aacraid"      => "unimplemented",  # arcconf
+	"megaraid_sas" => "sltinf_storcli",  # storcli
+	"aacraid"      => "unimplemented",   # arcconf
     );
 
     # first: which controllers do we have
@@ -58,6 +59,99 @@ sub sltinf_none {
     foreach $disk ( @disklistA ) {
 	$smart->{$disk}{slotinfo} = "$controllertype" . ":::";
     }
+}
+sub sltinf_lsiutil {
+    my $ctrlmodule = $_[0];
+    my $controllertype = $_[1];
+    my $smart = $_[2];
+    my $disklist = $_[3];
+
+    print "Controllertype: $ctrlmodule\n" if $main::debug; 
+    my @disklistA = split ( /, /, $disklist);
+    my $infprog = "lsiutil";
+    my $disk;
+
+    if ( not `sh -c "which $infprog"` ) {
+	print "ERROR: required program \"$infprog\" not found, -> install it to continue. Aborting!\n";
+	exit 2;
+    }
+
+    # get controller count
+    my @controlleridxs;
+    my $controller;
+
+    print "getting # of installed controllers from $infprog\n"  if $main::verbose;
+    open (PROGOUT, "echo 0 | $infprog |" || die "getting controllercount from $infprog failed");
+# expected output
+# 
+# LSI Logic MPT Configuration Utility, Version 1.56, March 19, 2008
+# 
+# 1 MPT Port found
+# 
+#      Port Name         Chip Vendor/Type/Rev    MPT Rev  Firmware Rev  IOC
+#  1.  /proc/mpt/ioc0    LSI Logic SAS1068E B3     105      00192f00     0
+# 
+# Select a device:  [1-1 or 0 to quit] 
+    while (<PROGOUT>) {
+	chomp;
+	if ($_ =~ /^\s+(\d+)\.\s+\/proc\/mpt/) {
+	    push (@controlleridxs, $1)
+	}
+    }
+    close (PROGOUT);
+    print "$infprog Controllers found ( " . scalar @controlleridxs ." ), index: @controlleridxs\n"  if $main::verbose;
+
+    # get diskidentifier per slot
+    my $inDiskList = 0;
+
+    foreach $controller ( @controlleridxs ) {
+	print "$infprog: reading controller $controller\n" if $main::verbose;
+	open (PROGOUT, "$infprog -p $controller -a 42,0,0 |" || die "getting infos from $infprog controller #$controller failed");
+# get info for all disks
+
+# expected output
+# # lsiutil -p 1 -a 42,0,0
+# 
+# LSI Logic MPT Configuration Utility, Version 1.56, March 19, 2008
+# 
+# 1 MPT Port found
+# 
+#      Port Name         Chip Vendor/Type/Rev    MPT Rev  Firmware Rev  IOC
+#  1.  /proc/mpt/ioc0    LSI Logic SAS1068E B3     105      00192f00     0
+# 
+# Main menu, select an option:  [1-99 or e/p/w or 0 to quit] 42
+# 
+# /proc/mpt/ioc0 is SCSI host 2
+# 
+#  B___T___L  Type       Operating System Device Name
+#  0   0   0  Disk       /dev/sdc    [2:0:0:0]
+#  0   1   0  Disk       /dev/sdd    [2:0:1:0]
+#  0   2   0  Disk       /dev/sde    [2:0:2:0]
+#  0   3   0  Disk       /dev/sdf    [2:0:3:0]
+#  0   4   0  Disk       /dev/sdg    [2:0:4:0]
+#  0   5   0  Disk       /dev/sdh    [2:0:5:0]
+#  0   6   0  Disk       /dev/sdi    [2:0:6:0]
+#  0   7   0  Disk       /dev/sdj    [2:0:7:0]
+#  0   8   0  EnclServ
+# 
+# Main menu, select an option:  [1-99 or e/p/w or 0 to quit] 0
+# 
+	while (<PROGOUT>) {
+            print $_ if $main::Debug;
+	    chomp;
+	    next if ( $inDiskList == 0 and $_ !~ /B___T___L/ );
+	    if ( $_ =~ /B___T___L/i ) {	# Board aka Controller#, Target aka Slot, LUN
+		$inDiskList = 1;
+	    }
+	    elsif ( /^\s+(\d+)\s+(\d+)\s+(\d+)\s+Disk\s+\/dev\/(\S+)\s+/i ) {	#
+		print "Board: $1 Target: $2 LUN: $3 Disk: $4\n" if $main::verbose;
+		$smart->{$4}{slotinfo} = "$controllertype:$controller:$1:$2";
+	    }
+	}
+    }
+#    foreach $disk ( @disklistA ) {
+#	$smart->{$disk}{slotinfo} = "$controllertype" . ":::";
+#    }
 }
 sub sltinf_sas23ircu {
     my $ctrlmodule = $_[0];
