@@ -71,6 +71,11 @@ sub sltinf_lsiutil {
     my $infprog = "lsiutil";
     my $disk;
 
+# initialise
+    foreach $disk ( @disklistA ) {
+	$smart->{$disk}{slotinfo} = "$controllertype" . ":::";
+    }
+
     if ( not `sh -c "which $infprog"` ) {
 	print "ERROR: required program \"$infprog\" not found, -> install it to continue. Aborting!\n";
 	exit 2;
@@ -110,6 +115,9 @@ sub sltinf_lsiutil {
 # get info for all disks
 
 # expected output
+#
+# this is only a JBOD configuration
+#
 # # lsiutil -p 1 -a 42,0,0
 # 
 # LSI Logic MPT Configuration Utility, Version 1.56, March 19, 2008
@@ -149,9 +157,6 @@ sub sltinf_lsiutil {
 	    }
 	}
     }
-#    foreach $disk ( @disklistA ) {
-#	$smart->{$disk}{slotinfo} = "$controllertype" . ":::";
-#    }
 }
 sub sltinf_sas23ircu {
     my $ctrlmodule = $_[0];
