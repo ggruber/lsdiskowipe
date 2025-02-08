@@ -1,7 +1,7 @@
-package getSlotInfo;
+package lsdiskowipe::getSlotInfo;
 use strict;
 use warnings;
-use readSmartData;
+use lsdiskowipe::readSmartData;
 use Data::Dumper;
 
 sub sortDiskNames {

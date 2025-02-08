@@ -2,7 +2,7 @@
 # get basic (and some extended) information from every single disk
 #
 
-package readSmartData;
+package lsdiskowipe::readSmartData;
 use strict;
 use warnings;
 use Data::Dumper;
@@ -550,7 +550,7 @@ sub consolidateDrives {
 			$smart->{$disk}{vendor} = "Seagate";
 		    } elsif ( $smart->{$disk}{devModel} =~ /TS[0-9]/ ) {
 			$smart->{$disk}{vendor} = "Transcend";
-		    } elsif ( $smart->{$disk}{devModel} =~ /(WDC|Samsung|Intel)/i ) {
+		    } elsif ( $smart->{$disk}{devModel} =~ /(WDC|Samsung|Intel|ATP)/i ) {
 			$smart->{$disk}{vendor} = $1;
 		    } elsif ( $smart->{$disk}{devModel} =~ /(WD)/i ) {
 			$smart->{$disk}{vendor} = $1;
@@ -712,6 +712,7 @@ sub printSmartData {
 	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
 	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
 	      defined $smart->{$disk}{HPA}         ? $smart->{$disk}{HPA}         : "",
+	      defined $smart->{$disk}{DCO}         ? $smart->{$disk}{DCO}         : "",
 	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
 	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
 	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",

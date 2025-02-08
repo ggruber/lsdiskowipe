@@ -14,7 +14,7 @@
 #      CREATED: 27.04.2016 16:39:16
 #     REVISION: ---
 #===============================================================================
-package readNwipeLog;
+package lsdiskowipe::readNwipeLog;
 use strict;
 use warnings;
 

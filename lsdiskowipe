@@ -11,9 +11,9 @@ use warnings;
 use POSIX qw/strftime/;
 use Data::Dumper;
 use Getopt::Std;
-use readSmartData;
-use getSlotInfo;
-use readNwipeLog;
+use lsdiskowipe::readSmartData;
+use lsdiskowipe::getSlotInfo;
+use lsdiskowipe::readNwipeLog;
 
 my $smartResult = {};
 my $formathelper = {};
@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.9.4';
+$main::VERSION = '1.9.5';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -61,9 +61,9 @@ foreach ( @blacklist, @uc_blacklist ) {
     }
 }
 
-readSmartData::readSmartData($smartResult, \@uc_blacklist);
-getSlotInfo::getSlotInfo($smartResult);
-readSmartData::consolidateDrives($smartResult, $formathelper);
+lsdiskowipe::readSmartData::readSmartData($smartResult, \@uc_blacklist);
+lsdiskowipe::getSlotInfo::getSlotInfo($smartResult);
+lsdiskowipe::readSmartData::consolidateDrives($smartResult, $formathelper);
 
 if ( not $force ) {
     print "\nAll mounted or blacklisted disks, md or zpool members are excluded.\n";
@@ -110,8 +110,8 @@ if ( not $force ) {
     }
 }
 
-readSmartData::printSmartData($smartResult, $formathelper);
-readSmartData::printBadDisks($smartResult);
+lsdiskowipe::readSmartData::printSmartData($smartResult, $formathelper);
+lsdiskowipe::readSmartData::printBadDisks($smartResult);
 if ( $wipe ) {
     print "The following ".scalar(keys %$smartResult)." disks will be erased:\n";
     my $i = 0;
@@ -130,7 +130,7 @@ if ( $wipe ) {
             foreach (sort keys %$smartResult) { push @arguments, "/dev/$_"; }
 	    print "nwipe @arguments" if $main::debug;;
             system("nwipe", @arguments);
-            readSmartData::readSmartData($smartResAfterErase);
+            lsdiskowipe::readSmartData::readSmartData($smartResAfterErase);
             foreach (sort sortDiskNames keys %$smartResult) {
                 if($smartResult->{$_}{reallocSect} ne $smartResAfterErase->{$_}{reallocSect}) {
                     push(@smartDiff, $_);
@@ -146,7 +146,7 @@ if ( $wipe ) {
             else {
                 print "No changes in reallocated sector count.\n";
             }
-            readNwipeLog::readLog($smartResAfterErase, "wipe_$logfile.log");
+            lsdiskowipe::readNwipeLog::readLog($smartResAfterErase, "wipe_$logfile.log");
             
             last;
         }
