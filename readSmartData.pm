@@ -361,6 +361,9 @@ sub readSmartData {
                 elsif ( $line =~ /Current\sDrive\sTemperature:\s+(\d+)/i ) {
                     $smart->{$hddId}{temp} = $1;
                 }
+                elsif ( $line =~ /Current\sTemperature =\s+(\d+)/i ) {
+                    $smart->{$hddId}{temp} = $1;
+                }
                 elsif ( $line =~ /Total new blocks reassigned =\s+(\d+)$/i ) {
                     $smart->{$hddId}{pendsect} = $1;
                 }
