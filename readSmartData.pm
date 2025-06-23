@@ -129,6 +129,7 @@ sub readSmartData {
         my %ctrlChoice = (
             "ahci"          => sub { @smartData = `smartctl -a /dev/$hddId` },
             "uas"           => sub { @smartData = `smartctl -a /dev/$hddId` },
+            "pata_jmicron"  => sub { @smartData = `smartctl -a /dev/$hddId` },
             "nvme"          => sub { @smartData = `smartctl -a /dev/$hddId` },
 	    "usb-storage"   => sub { @smartData = `smartctl -a /dev/$hdd{$hddId}{scsi}` },
             # not seen SAS disks on ahci, uas or nvme so -a seems sufficient
@@ -147,6 +148,7 @@ sub readSmartData {
             "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
             "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
             "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
+            "pata_jmicron"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
 	    "usb-storage"   => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
             "3w-9xxx"       => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
             "3w-sas"        => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
@@ -161,6 +163,7 @@ sub readSmartData {
             "ahci"          => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
             "nvme"          => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
             "uas"           => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
+            "pata_jmicron"  => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
 	    "usb-storage"   => sub { @HPA_Data = `hdparm -N /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
             "3w-9xxx"       => sub { @HPA_Data = `hdparm -N -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
             "3w-sas"        => sub { @HPA_Data = `hdparm -N -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
@@ -175,6 +178,7 @@ sub readSmartData {
             "ahci"          => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
             "nvme"          => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
             "uas"           => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
+            "pata_jmicron"  => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
 	    "usb-storage"   => sub { @DCO_Data = `hdparm --dco-identify /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
             "3w-9xxx"       => sub { @DCO_Data = `hdparm --dco-identify -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
             "3w-sas"        => sub { @DCO_Data = `hdparm --dco-identify -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
@@ -338,6 +342,9 @@ sub readSmartData {
 		elsif ( $line =~ /.+\sPower_On_Hours.+\s(\d+)\s+\(\d+\s+\d+\s+\d+\)\s*$/i ) {
                     $smart->{$hddId}{powOnHours} = $1;
                 }
+                elsif ( $line =~ /.+\sPower_On_Minutes.+\s(\d+)h[0-9\+m\.]+$/i ) {
+                    $smart->{$hddId}{powOnHours} = $1;
+                }
                 elsif ( $line =~ /.+\sAirflow_Temperature_Cel[^(]+\s(\d+)$/i ) {
                     $smart->{$hddId}{temp} = $1;
                 }
@@ -353,8 +360,8 @@ sub readSmartData {
                 elsif ( $line =~ /ATA\sError\sCount:\s+(\d+).*$/i ) {
                     $smart->{$hddId}{numErr} = $1;
                 }
-                elsif ( $line =~ /CRC.Error.Count\s+.*(\d+)\s*$/i ) {
-                    if ( undef $smart->{$hddId}{numErr} or not $smart->{$hddId}{numErr} ) {
+                elsif ( $line =~ /CRC.Error.Count\s+.*\s(\d+)\s*$/i ) {
+                    if ( undef $smart->{$hddId}{numErr} or not $smart->{$hddId}{numErr} or $smart->{$hddId}{numErr} == 0 ) {
                         $smart->{$hddId}{numErr} = $1;
                    }
                 }
@@ -392,9 +399,6 @@ sub readSmartData {
                     $smart->{$hddId}{powOnHours} = $1;
                 }
                 elsif ( $line =~ /Current\sDrive\sTemperature:\s+(\d+)/i ) {
-                    $smart->{$hddId}{temp} = $1;
-                }
-                elsif ( $line =~ /Current\sTemperature =\s+(\d+)/i ) {
                     $smart->{$hddId}{temp} = $1;
                 }
                 elsif ( $line =~ /Total new blocks reassigned =\s+(\d+)$/i ) {
@@ -593,6 +597,7 @@ sub consolidateDrives {
 		}
 	    }
 	}
+	# beautify Vendor
 	if( $smart->{$disk}{vendor} ) {
 	    $vendor = $smart->{$disk}{vendor};
 	    $vendor =~ s/.*Western Digital.*/WDC/i;
@@ -600,6 +605,7 @@ sub consolidateDrives {
 	    $vendor =~ s/.*Dell.*/Dell/i;
 	    $vendor =~ s/.*Toshiba.*/Toshiba/i;
 	    $vendor =~ s/.*Seagate.*/Seagate/i;
+	    $vendor =~ s/.*Maxtor.*/Maxtor/i;
 	    $vendor =~ s/Intel.*/Intel/i;
 	    $vendor =~ s/.*Samsung based SSDs.*/Samsung/i;
 	    $vendor =~ s/.*Marvell based SanDisk SSDs.*/SanDisk/i;
