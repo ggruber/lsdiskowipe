@@ -24,16 +24,17 @@ sub getSlotInfo {
 	"3w-9xxx"      => "unimplemented",   # twcli
 	"3w-sas"       => "unimplemented",   # twcli
 	"mptsas"       => "sltinf_lsiutil",  # lsiutil or lsimega or megacli?
-	"mpt2sas"      => "sltinf_sas23ircu",
-	"mpt3sas"      => "sltinf_sas23ircu",
+	"mpt2sas"      => "sltinf_sas23ircu",# sas2ircu
+	"mpt3sas"      => "sltinf_sas23ircu",# sas3ircu
 	"megaraid_sas" => "sltinf_storcli",  # storcli
 	"aacraid"      => "unimplemented",   # arcconf
     );
 
-    # first: which controllers do we have
+    # first: which controllers do we have, which controller has which disks
     foreach $disk ( sort sortDiskNames keys %$smart ) {
 	$controllerInfo{$smart->{$disk}{driver}} .= $controllerInfo{$smart->{$disk}{driver}} ? ", $disk" : $disk;
     }
+    # now get the slotinfo per controller
     foreach $controller ( keys %controllerInfo ) {
 	print "controller: $controller -> disks: $controllerInfo{$controller}\n" if $main::debug;
 	$controllertype++;	# simply enumerate

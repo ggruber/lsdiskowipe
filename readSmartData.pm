@@ -15,14 +15,22 @@ sub sortDiskNames {
 sub readSmartData {
     my $smart          = $_[0];	# ptr to smart data structure
     my $uc_blacklist   = $_[1]; # ptr to unconditional blacklist
-    my @controllerData = `lsscsi -H`;
-    my @hddData        = `lsscsi -g`;	# lists virtual disks on RAID Controllers if not in HBA/JBOD mode
-    my %hdd;
+    #
+    # detection if output is useful should be added to the lsscsi calls
+    # in the sense of robustness of the programm
+    #
     my %ctrl;
+    my %hdd;
     my $twa = 0;
     my $has_nvme = 0;
     my @nvmedisks;
 
+    my @controllerData = `lsscsi -H`;	# list the SCSI hosts and NVMe controllers currently attached to the system
+    					# looks like:
+					# [0]    ahci
+					# [1]    ahci
+					# [2]    mpt2sas
+					#
     foreach my $line (@controllerData) {
         chomp $line;
         if ( $line =~ /\[(\d+)\]\s+(\S+)\s*/ ) {
@@ -31,7 +39,19 @@ sub readSmartData {
             $ctrl{$id}{driver} = $driver;
             if ( $driver =~ /^3w-9xxx$/ ) {
                 $ctrl{$id}{twa}     = $twa;
-                my @twData =  `tw_cli \/c$id show`;
+		# find the required helper program
+		my $twcli_program = "";
+                if ( not `sh -c "which tw_cli"` ) {
+		    if ( not `sh -c "which tw-cli"` ) {
+			die "required program \"tw_cli\" or \"tw-cli\" not found, go and get it";
+		    } else {
+			$twcli_program = "tw-cli";
+		    }
+		} else {
+		    $twcli_program = "tw_cli";
+		}
+
+                my @twData =  `$twcli_program \/c$id show`;
                 $ctrl{$id}{twData}  = \@twData;
                 $twa++;
             }
@@ -46,10 +66,14 @@ sub readSmartData {
 	    my $driver = "nvme";
             $ctrl{$id}{driver} = $driver;
 	} else {
-	    print "$line\n" if ( $main::verbose or $main::debug );
+	    print "unknown line for controllerdata: $line\n" if ( $main::verbose or $main::debug );
 	}
 
     }
+
+    my @hddData        = `lsscsi -g`;	# list virtual disks on RAID Controllers if not in HBA/JBOD mode
+    					# looks like:
+					# [2:0:0:0]    disk    ATA      ST4000NM000B-2TF TN01  /dev/sda   /dev/sg0
     foreach my $line (@hddData) {
         chomp $line;
         if ($line =~ /^\[(\d+):(\d+):(\d+):(\d+)\].*\/dev\/(sd\w+)\s+\/dev\/(\w+)\n?/) {
@@ -68,8 +92,14 @@ sub readSmartData {
 	    $hdd{$4}{sata}    = $4;
 	    $hdd{$4}{scsi}    = "";
 	    push ( @nvmedisks, "$4" );
+	} else {
+	    print "unknown line for diskdata: $line\n" if ( $main::verbose or $main::debug );
 	}
     }
+    #
+    # kind of main loop
+    # gather "basic" information from all disks
+    #
     foreach my $hddId ( sort sortDiskNames keys %hdd ) {
         my @smartData;
 	my @T10PI_Data;
@@ -156,6 +186,9 @@ sub readSmartData {
         );
 
         
+	#
+	# get majority of SMART information
+	#
         if ( defined $ctrlChoice{ $ctrl{$host}{driver} } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
             $ctrlChoice{ $ctrl{$host}{driver} }->();
@@ -658,6 +691,21 @@ sub consolidateDrives {
     }
 }
 
+sub readFARMdata {
+    my $smart          = $_[0];	# ptr to smart data structure
+    my $smartctl74 = 0;
+
+    # check version of smartctl as FARM check requires >= 7.4
+    my @smartctlVersion = `smartctl --version`;
+    foreach my $line (@smartctlVersion) {
+	chomp $line;
+	if ( $line =~ /^smartctl\s+(\d+\.\d+)\s+/ ) {
+	    if ( $1 >= 7.4 ) {
+	        $smartctl74 = 1;
+            }
+        }
+    }
+}
 
 sub printSmartData {
     my $smart = $_[0];
@@ -759,4 +807,6 @@ sub printBadDisks {
         print "none.\n";
     }
 }
+
+
 1;

@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.9.5';
+$main::VERSION = '1.10.1';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -64,6 +64,7 @@ foreach ( @blacklist, @uc_blacklist ) {
 lsdiskowipe::readSmartData::readSmartData($smartResult, \@uc_blacklist);
 lsdiskowipe::getSlotInfo::getSlotInfo($smartResult);
 lsdiskowipe::readSmartData::consolidateDrives($smartResult, $formathelper);
+lsdiskowipe::readSmartData::readFARMdata($smartResult);
 
 if ( not $force ) {
     print "\nAll mounted or blacklisted disks, md or zpool members are excluded.\n";
