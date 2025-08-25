@@ -332,6 +332,9 @@ sub readSmartData {
 	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+0x[0-9a-f]+\s+[0]*(\d+)\s/ ) {
 		$smart->{$hddId}{pctRemaining} = $1;
 	    }
+	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+.*\s+(\d+)$/ ) {
+		$smart->{$hddId}{pctRemaining} = 100 - $1;
+	    }
             if ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} =~ /[s]*ata/ ) {
                 if ( $line =~ /Reallocated_Sector_Ct.+\s(\d+)$/i or $line =~ /Reallocate_NAND_Blk_Cnt.+\s(\d+)$/i ) {
                     $smart->{$hddId}{reallocSect} = $1;
