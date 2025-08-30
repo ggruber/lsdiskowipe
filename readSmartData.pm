@@ -75,31 +75,57 @@ sub readSmartData {
     					# looks like:
 					# [2:0:0:0]    disk    ATA      ST4000NM000B-2TF TN01  /dev/sda   /dev/sg0
     foreach my $line (@hddData) {
+	print $line if ( $main::debug );
         chomp $line;
-        if ($line =~ /^\[(\d+):(\d+):(\d+):(\d+)\].*\/dev\/(sd\w+)\s+\/dev\/(\w+)\n?/) {
+        if ($line =~ /^\[(\d+):(\d+):(\d+):(\d+)\](.*)\/dev\/(sd\w+)\s+\/dev\/(\w+)\n?/) {
 	    next if ( grep ( /^\/dev\/$5$/, @$uc_blacklist ) );  # omit uc blacklisted disks
-            $hdd{$5}{host}    = $1;
-            $hdd{$5}{channel} = $2;
-            $hdd{$5}{id}      = $3;
-            $hdd{$5}{lun}     = $4;
-            $hdd{$5}{sata}    = $5;
-            $hdd{$5}{scsi}    = $6;
-        } elsif ($line =~ /^\[(N:\d+):(\d+):(\d+)\].*\/dev\/(nvme\w+)n1\s+\-\n?/) {
+            $hdd{$6}{host}    = $1;
+            $hdd{$6}{channel} = $2;
+            $hdd{$6}{id}      = $3;
+            $hdd{$6}{lun}     = $4;
+            $hdd{$6}{descrip} = $5;
+            $hdd{$6}{sata}    = $6;
+            $hdd{$6}{scsi}    = $7;
+        } elsif ($line =~ /^\[(N:\d+):(\d+):(\d+)\](.*)\/dev\/(nvme\w+)n1\s+\-\n?/) {
 	    next if ( grep ( /^\/dev\/$4$/, @$uc_blacklist ) );  # omit uc blacklisted disks
-	    $hdd{$4}{host}    = $1;
-            $hdd{$4}{id}      = $2;
-            $hdd{$4}{lun}     = $3;
-	    $hdd{$4}{sata}    = $4;
-	    $hdd{$4}{scsi}    = "";
-	    push ( @nvmedisks, "$4" );
-	} else {
-	    print "unknown line for diskdata: $line\n" if ( $main::verbose or $main::debug );
+	    $hdd{$5}{host}    = $1;
+            $hdd{$5}{id}      = $2;
+            $hdd{$5}{lun}     = $3;
+            $hdd{$5}{descrip} = $4;
+	    $hdd{$5}{sata}    = $5;
+	    $hdd{$5}{scsi}    = "";
+	    push ( @nvmedisks, "$5" );
+	} elsif ($line =~ /^\[[N\d]+:\d+:\d+:\d+\]\s+(\S+)\s+/) {
+	    if ("$1" eq "disk") {
+	        print "unknown line for diskdata: $line\n";
+	    } else {
+		print "ignoring non-disk: $line\n" if ( $main::debug );
+	    }
 	}
     }
     #
     # kind of main loop
     # gather "basic" information from all disks
     #
+    # here goes the detection of physical disks of a hardware RAID per virtual disk shown to os
+    # so split logical disk in its physical components
+    # %PDfromRAID = {
+    # 	"megaraid_sas"	=> "VD2PD_megaraid_sas",
+    # 	"3w-9xxx"	=> "VD2PD_3w-9xxx",
+    # 	"aacraid"	=> "VD2PD_aacraid",
+    # }
+    # foreach my $hddId ( sort sortDiskNames keys %hdd ) {
+    # 	my $host       = $hdd{$hddId}{host};
+    # 	my $driver =  $ctrl{$host}{driver} ? $ctrl{$host}{driver} : 'unknown' ;
+    #
+    # 	if ( defined $PDfromRAID->$driver ) {
+    # 	    my $VD2PD = "$PDfromRAID->$driver ( \%hdd );";
+    # 	    eval $VD2PD:
+    # 	}
+    # }
+    #
+    # quirk
+    my $megaraid_sas_id = 0;
     foreach my $hddId ( sort sortDiskNames keys %hdd ) {
         my @smartData;
 	my @T10PI_Data;
@@ -107,12 +133,12 @@ sub readSmartData {
 	my @DCO_Data;
 	my $SASignoreNextIFSpeed = 0;
         my $host       = $hdd{$hddId}{host};
-	print "$hddId\{$host\} " if $main::debug;
+	print "hddId\{host\}: $hddId\{$host\} " if $main::debug;
         $hdd{$hddId}{blanked}   = 0;
         $hdd{$hddId}{erased}    = 0;
 	# info on driver if verbose is requested
 	my $driver =  $ctrl{$host}{driver} ? $ctrl{$host}{driver} : 'unknown' ;
-	print "$hddId: hddId:driver $driver\n" if $main::verbose;
+	print "hddId:driver $hddId:$driver\n" if $main::debug;
 	$smart->{$hddId}{driver} = $driver;
 	    
         if ( $ctrl{$host}{driver} eq "3w-9xxx" ) {
@@ -139,7 +165,7 @@ sub readSmartData {
             "mptsas"        => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
             "mpt2sas"       => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
             "mpt3sas"       => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
-            "megaraid_sas"  => sub { @smartData = `smartctl -x -d megaraid,$hdd{$hddId}{id} /dev/$hddId` },
+            "megaraid_sas"  => sub { @smartData = `smartctl -x -d megaraid,$megaraid_sas_id /dev/$hddId` },
             "aacraid"       => sub { @smartData = `smartctl -x $hdd{$hddId}{scsi}` }
             # aacraid SAS does only work without -d sat. A solution for SATA and SAS still needs to be implemented.
         );
@@ -198,6 +224,10 @@ sub readSmartData {
             $ctrlChoice{ $ctrl{$host}{driver} }->();
 	    # if there are some slow SAS disks show activity
             print ".";
+	    # quirk #2
+	    if ( $ctrl{$host}{driver} eq "megaraid_sas" ) {
+		$megaraid_sas_id++;
+	    }
         } else {
 	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
 	    next;
@@ -332,10 +362,10 @@ sub readSmartData {
 	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+0x[0-9a-f]+\s+[0]*(\d+)\s/ ) {
 		$smart->{$hddId}{pctRemaining} = $1;
 	    }
-	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+.*\s+(\d+)$/ ) {
-		$smart->{$hddId}{pctRemaining} = 100 - $1;
-	    }
-            if ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} =~ /[s]*ata/ ) {
+            elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+.*\s+(\d+)$/ ) {
+                $smart->{$hddId}{pctRemaining} = 100 - $1;
+            }
+	    if ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} =~ /[s]*ata/ ) {
                 if ( $line =~ /Reallocated_Sector_Ct.+\s(\d+)$/i or $line =~ /Reallocate_NAND_Blk_Cnt.+\s(\d+)$/i ) {
                     $smart->{$hddId}{reallocSect} = $1;
                 }
@@ -436,7 +466,10 @@ sub readSmartData {
             }
         }
 	if ( not ( $smart->{$hddId}{vendor} or  $smart->{$hddId}{devModel} and  $smart->{$hddId}{serial} ) and ( $hddId !~ /nvme/i ) ) {
-	    print "\nno basic information for $hddId, omitting it\n";
+	    my $diskinfo = $hdd{$hddId}{descrip};
+	    $diskinfo =~ s/\s+/ /g;
+	    $diskinfo =~ s/^ (.*) /$1/;
+	    print "\nno basic information/unsupported disk $hddId ($diskinfo), omitting it\n";
 	    delete $smart->{$hddId};
 	    next;
 	}
@@ -626,13 +659,12 @@ sub consolidateDrives {
 	foreach my $attrib ( keys %attribmap ) {
 	    if( not defined $smart->{$disk}{$attrib} ) {
 	        $smart->{$disk}{$attrib} = "";
-	    } else {
-	        if( not defined $formathelper->{$attrib}) {
-		    $formathelper->{$attrib} = length( $attribmap{$attrib} ) >= length( $smart->{$disk}{$attrib} ) ?
-			length( $attribmap{$attrib} ) : length( $smart->{$disk}{$attrib} );
-		} elsif ( $formathelper->{$attrib} < length($smart->{$disk}{$attrib})) {
-		    $formathelper->{$attrib} = length($smart->{$disk}{$attrib});
-		}
+	    }
+	    if( not defined $formathelper->{$attrib}) {
+		$formathelper->{$attrib} = length( $attribmap{$attrib} ) >= length( $smart->{$disk}{$attrib} ) ?
+		    length( $attribmap{$attrib} ) : length( $smart->{$disk}{$attrib} );
+	    } elsif ( $formathelper->{$attrib} < length($smart->{$disk}{$attrib})) {
+		$formathelper->{$attrib} = length($smart->{$disk}{$attrib});
 	    }
 	}
 	$diskIdentifier = $smart->{$disk}{vendor}.$smart->{$disk}{devModel}.$smart->{$disk}{serial};

@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.10.1';
+$main::VERSION = '1.10.2';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -70,13 +70,15 @@ if ( not $force ) {
     print "\nAll mounted or blacklisted disks, md or zpool members are excluded.\n";
     print "Avoid this by using the -f (force) option.\n";
 } else {
-    print "\nforce option used, all disks considered, except unconditionally blacklisted ones.\n";
+    print "\nforce option used, all disks considered, except unconditionally blacklisted ones.\n" if ($main::verbose);
     if ( $wipe ) {
 	print "You will probably wipe the disks this system is running from: BE SURE THAT THIS IS WHAT YOU WANT!\n";
     }
 }
-print "wiping will require the -w (wipe) option\n" if not $wipe;
-print "\n";
+if ($main::verbose or $main::debug) {
+    print "wiping will require the -w (wipe) option\n" if not $wipe;
+    print "\n";
+}
 # exclude mounted HDDs
 my @mount = `mount`;
 # handle blacklist by faking mount entries
