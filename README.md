@@ -19,7 +19,7 @@ nwipe gives you an overview of the features and some critical health information
 As of version 1.5 the programm lists Linux' /dev/sd* and /dev/nvme* physical devices with a lot of interesting information.
 E.g. vendor, model, S/N, firmware version, capacity, interface type and speed, rpm, sectorsize, SMART Health, counted hours of operation,
 reallocated sectors, current temperature, remaining lifetime for SSDs, other errors.
-Version 1.8 added slot information for disks on supported HBAs.
+Version 1.8 added slot information for disks on supported HBAs, 1.11 added support for disks in LIS/Avago/Broadcom RAIDs and FARM reading for Seagate disks.
 
 As it is written in perl it should be easily expandable.
 
