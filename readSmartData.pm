@@ -252,6 +252,11 @@ sub readSmartData {
 	    next;
 	}
 
+	$smart->{$hddId}{lhddId} = $lhddId;
+	$smart->{$hddId}{phddId} = $phddId;
+	$smart->{$hddId}{shddId} = $hdd{$hddId}{scsi};
+	$smart->{$hddId}{cntrlr} = $ctrl{$host}{driver};
+
         foreach my $line (@smartData) {
 	    print $line if $main::Debug;
             chomp $line;
@@ -576,9 +581,9 @@ sub readSmartData {
 		    if ( defined $smart->{$hddId}{HPAmax} and $smart->{$hddId}{HPAmax} > 1
 						      and $smart->{$hddId}{DCOsectors} > 1 ) {
 			if ( $smart->{$hddId}{HPAmax} != $smart->{$hddId}{DCOsectors} ) {
-			    print "$hddId: HPAmax != DCOsectors\n" if $main::verbose;
+			    print "$hddId: HPAmax != DCOsectors\n" if $main::debug;
 			} else {
-			    print "$hddId: HPAmax == DCOsectors == $smart->{$hddId}{HPAmax}\n" if $main::verbose;
+			    print "$hddId: HPAmax == DCOsectors == $smart->{$hddId}{HPAmax}\n" if $main::debug;
 			}
 		    }
 		}
@@ -750,8 +755,9 @@ sub consolidateDrives {
     }
 }
 
+# FARM is checked after consolidation of the disks to avoid unnecxcessary 
 sub readFARMdata {
-    my $smart          = $_[0];	# ptr to smart data structure
+    my $smart      = $_[0];	# ptr to smart data structure
     my $smartctl74 = 0;
 
     # check version of smartctl as FARM check requires >= 7.4
@@ -767,6 +773,77 @@ sub readFARMdata {
 	    }
         }
     }
+    return unless $smartctl74 == 1 ;
+
+    print "starting FARM\n" if ( $main::debug );
+    # smartctl -l farm /dev/sda
+
+    foreach my $hddId ( sort sortDiskNames keys %$smart ) {
+	my @FARMdata;
+
+	if ( $smart->{$hddId}{vendor} !~ /seagate/i ) {
+	    next;
+	}
+
+	my $lhddId = $smart->{$hddId}{lhddId};
+	my $phddId = $smart->{$hddId}{phddId} ? $smart->{$hddId}{phddId} : "";
+	my $shddId = $smart->{$hddId}{shddId};	# scsi name/id
+	my $cntrlr = $smart->{$hddId}{cntrlr};
+
+	my %ctrlChoice = (
+            "ahci"          => sub { @FARMdata = `smartctl -l farm /dev/$lhddId` },
+            "uas"           => sub { @FARMdata = `smartctl -l farm /dev/$lhddId` },
+            "pata_jmicron"  => sub { @FARMdata = `smartctl -l farm /dev/$lhddId` },
+            "nvme"          => sub { @FARMdata = `smartctl -l farm /dev/$lhddId` },
+	    "usb-storage"   => sub { @FARMdata = `smartctl -l farm /dev/$shddId` },
+            # not seen SAS disks on ahci, uas or nvme so -a seems sufficient
+            # else -x to get interface speed for SAS drives
+	    #"3w-9xxx"       => sub { @FARMdata = `smartctl -l farm -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa}` },
+	    #"3w-sas"        => sub { @FARMdata = `smartctl -l farm -d 3ware,$hdd{$hddId}{id} /dev/$hddId` },
+            "mptsas"        => sub { @FARMdata = `smartctl -l farm /dev/$shddId` },
+            "mpt2sas"       => sub { @FARMdata = `smartctl -l farm /dev/$shddId` },
+            "mpt3sas"       => sub { @FARMdata = `smartctl -l farm /dev/$shddId` },
+            "megaraid_sas"  => sub { @FARMdata = `smartctl -l farm -d megaraid,$phddId /dev/$lhddId` },
+            "aacraid"       => sub { @FARMdata = `smartctl -l farm $shddId` }
+            # aacraid SAS does only work without -d sat. A solution for SATA and SAS still needs to be implemented.
+        );
+        if ( defined $cntrlr ) {
+            #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
+            $ctrlChoice{$cntrlr}->();	# here work gets done
+	    # if there are some slow SAS disks show activity
+            print "+";
+        } else {
+	    print "Unimplemented Controller: $cntrlr, please file a feature request for it.\n";
+	    next;
+	}
+	my $PoH;	# PowerOnHours
+	my $AssDate;	# Assembly Date
+	my @PoH = grep ( /^\s+Power on Hours:\s+\d+\s*$/, @FARMdata );
+	if ( scalar (@PoH) eq 1 ) {
+	    ( $PoH ) = @PoH;
+	    if ( $PoH =~ /^\s+Power on Hours:\s+(\d+)\s*$/ ) {
+		$smart->{$hddId}{FARMpoh} = $1;
+		$main::FARMAvailable++;
+		print "disk $hddId PoH $1\n" if ( $main::debug );
+	    }
+	} else {
+	    print "ambiguous FARM Power on Hours for $hddId\n";
+	}
+	my @AssDate = grep ( /^\s+Assembly Date \(YYWW\):\s+\d{4}\s*$/, @FARMdata );
+	if ( scalar (@AssDate)  eq 1 ) {
+	    ( $AssDate ) = @AssDate;
+	    if ( $AssDate =~ /^\s+Assembly Date \(YYWW\):\s+(\d)(\d)(\d)(\d)\s*$/ ) {
+		$AssDate = "$4$3/$2$1";
+		$smart->{$hddId}{FARMassdate} = $AssDate;
+		$main::FARMAvailable++;
+		print "disk $hddId AssDate (WW/YY): $AssDate\n" if ( $main::debug );
+	    }
+	} else {
+	    print "ambiguous FARM Assembly Date for $hddId\n";
+	}
+
+    }
+    print "\n";
 }
 
 sub printSmartData {
@@ -777,70 +854,48 @@ sub printSmartData {
     # dynamic column width
     my $outFormat;
 
-    if ( $main::SlotInfoAvailable ) {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
-            $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware},
-            $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "CT:C:E:Slot", "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT",
-			   "IFSPEED", "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
-    } else {
-        $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-7s %%-4s %%-7s %%-%ds %%-%ds\n",
-            $formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{firmware},
-            $formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $formathelper->{numErr}, $formathelper->{pendsect} );
-	printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT",
-			   "IFSPEED", "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
-    }
+    $formathelper->{slotinfo} = 0 unless ( defined $formathelper->{slotinfo} );
+    #$formathelper->{slotinfo} = 0;
+    #$main::SlotInfoAvailable = 0;
+    my $SlotHead = $main::SlotInfoAvailable ? "CT:C:E:Slot" : "";
+    #$main::FARMAvailable = 0;
+    my $FARMformat = $main::FARMAvailable ? "%-7s %-7s" : "%s%s";
+    my $FARMpohHead = $main::FARMAvailable ? "FARMPOH" : "";
+    my $FARMdomHead = $main::FARMAvailable ? "FARMDOM" : "";
+
+    $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-6s %s %%-4s %%-7s %%-%ds %%-%ds\n",
+	$formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware},
+	$formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $FARMformat, $formathelper->{numErr}, $formathelper->{pendsect} );
+    printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", $SlotHead, "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT",
+		       "IFSPEED", "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", $FARMpohHead, $FARMdomHead, "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
 
     foreach my $disk ( sort sortDiskNames keys %$smart ) {
 
-	if ( $main::SlotInfoAvailable ) {
-	    printf $outFormat,
-	      $disk,
-	      defined $smart->{$disk}{vendor}      ? $smart->{$disk}{vendor}      : "",
-	      defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
-	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
-	      defined $smart->{$disk}{slotinfo}    ? $smart->{$disk}{slotinfo}    : "n/a",
-	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
-	      defined $smart->{$disk}{HPA}         ? $smart->{$disk}{HPA}         : "",
-	      defined $smart->{$disk}{DCO}         ? $smart->{$disk}{DCO}         : "",
-	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
-	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
-	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
-	      defined $smart->{$disk}{transport}   ? $smart->{$disk}{transport}   : "",
-	      defined $smart->{$disk}{ifSpeed}     ? $smart->{$disk}{ifSpeed}     : "",
-	      defined $smart->{$disk}{rotation}    ? $smart->{$disk}{rotation}    : "",
-	      defined $smart->{$disk}{sectSize}    ? $smart->{$disk}{sectSize}    : "",
-	      defined $smart->{$disk}{health}      ? $smart->{$disk}{health}      : "",
-	      defined $smart->{$disk}{reallocSect} ? $smart->{$disk}{reallocSect} : "",
-	      defined $smart->{$disk}{powOnHours}  ? $smart->{$disk}{powOnHours}  : "",
-	      defined $smart->{$disk}{temp}        ? $smart->{$disk}{temp}        : "",
-	      defined $smart->{$disk}{pctRemaining}? $smart->{$disk}{pctRemaining}: "",
-	      defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "",
-	      defined $smart->{$disk}{pendsect}    ? $smart->{$disk}{pendsect}    : "";
-	} else {
-	    printf $outFormat,
-	      $disk,
-	      defined $smart->{$disk}{vendor}      ? $smart->{$disk}{vendor}      : "",
-	      defined $smart->{$disk}{devModel}    ? $smart->{$disk}{devModel}    : "",
-	      defined $smart->{$disk}{serial}      ? $smart->{$disk}{serial}      : "",
-	      defined $smart->{$disk}{firmware}    ? $smart->{$disk}{firmware}    : "",
-	      defined $smart->{$disk}{HPA}         ? $smart->{$disk}{HPA}         : "",
-	      defined $smart->{$disk}{DCO}         ? $smart->{$disk}{DCO}         : "",
-	      defined $smart->{$disk}{has_cryProt} ? $smart->{$disk}{has_cryProt} : "",
-	      defined $smart->{$disk}{cryProtAct}  ? $smart->{$disk}{cryProtAct}  : "",
-	      defined $smart->{$disk}{capacity}    ? $smart->{$disk}{capacity}    : "",
-	      defined $smart->{$disk}{transport}   ? $smart->{$disk}{transport}   : "",
-	      defined $smart->{$disk}{ifSpeed}     ? $smart->{$disk}{ifSpeed}     : "",
-	      defined $smart->{$disk}{rotation}    ? $smart->{$disk}{rotation}    : "",
-	      defined $smart->{$disk}{sectSize}    ? $smart->{$disk}{sectSize}    : "",
-	      defined $smart->{$disk}{health}      ? $smart->{$disk}{health}      : "",
-	      defined $smart->{$disk}{reallocSect} ? $smart->{$disk}{reallocSect} : "",
-	      defined $smart->{$disk}{powOnHours}  ? $smart->{$disk}{powOnHours}  : "",
-	      defined $smart->{$disk}{temp}        ? $smart->{$disk}{temp}        : "",
-	      defined $smart->{$disk}{pctRemaining}? $smart->{$disk}{pctRemaining}: "",
-	      defined $smart->{$disk}{numErr}      ? $smart->{$disk}{numErr}      : "",
-	      defined $smart->{$disk}{pendsect}    ? $smart->{$disk}{pendsect}    : "";
-	}
+	printf $outFormat,
+	    $disk,
+	    defined $smart->{$disk}{vendor}       ? $smart->{$disk}{vendor}      : "",
+	    defined $smart->{$disk}{devModel}     ? $smart->{$disk}{devModel}    : "",
+	    defined $smart->{$disk}{serial}       ? $smart->{$disk}{serial}      : "",
+	    (defined $smart->{$disk}{slotinfo}    && $main::SlotInfoAvailable) ? $smart->{$disk}{slotinfo} : "",
+	    defined $smart->{$disk}{firmware}     ? $smart->{$disk}{firmware}    : "",
+	    defined $smart->{$disk}{HPA}          ? $smart->{$disk}{HPA}         : "",
+	    defined $smart->{$disk}{DCO}          ? $smart->{$disk}{DCO}         : "",
+	    defined $smart->{$disk}{has_cryProt}  ? $smart->{$disk}{has_cryProt} : "",
+	    defined $smart->{$disk}{cryProtAct}   ? $smart->{$disk}{cryProtAct}  : "",
+	    defined $smart->{$disk}{capacity}     ? $smart->{$disk}{capacity}    : "",
+	    defined $smart->{$disk}{transport}    ? $smart->{$disk}{transport}   : "",
+	    defined $smart->{$disk}{ifSpeed}      ? $smart->{$disk}{ifSpeed}     : "",
+	    defined $smart->{$disk}{rotation}     ? $smart->{$disk}{rotation}    : "",
+	    defined $smart->{$disk}{sectSize}     ? $smart->{$disk}{sectSize}    : "",
+	    defined $smart->{$disk}{health}       ? $smart->{$disk}{health}      : "",
+	    defined $smart->{$disk}{reallocSect}  ? $smart->{$disk}{reallocSect} : "",
+	    defined $smart->{$disk}{powOnHours}   ? $smart->{$disk}{powOnHours}  : "",
+	    (defined $smart->{$disk}{FARMpoh}     && $main::FARMAvailable) ? $smart->{$disk}{FARMpoh}     : "",
+	    (defined $smart->{$disk}{FARMassdate} && $main::FARMAvailable) ? $smart->{$disk}{FARMassdate} : "",
+	    defined $smart->{$disk}{temp}         ? $smart->{$disk}{temp}        : "",
+	    defined $smart->{$disk}{pctRemaining} ? $smart->{$disk}{pctRemaining}: "",
+	    defined $smart->{$disk}{numErr}       ? $smart->{$disk}{numErr}      : "",
+	    defined $smart->{$disk}{pendsect}     ? $smart->{$disk}{pendsect}    : "";
     }
 }
 

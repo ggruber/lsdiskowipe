@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.11.0';
+$main::VERSION = '1.11.1';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
@@ -37,6 +37,7 @@ $main::debug = $opts{'d'};
 $main::Debug = $opts{'D'};
 
 $main::SlotInfoAvailable = 0;
+$main::FARMAvailable = 0;
 my $force = $opts{'f'};
 my $supress = $opts{'s'};
 my $wipe = $opts{'w'};
