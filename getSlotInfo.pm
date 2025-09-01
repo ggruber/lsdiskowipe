@@ -57,9 +57,9 @@ sub sltinf_none {
     my @disklistA = split ( /, /, $disklist);
     my $disk;
 
-    foreach $disk ( @disklistA ) {
-	$smart->{$disk}{slotinfo} = "$controllertype" . ":::";
-    }
+#    foreach $disk ( @disklistA ) {
+#	$smart->{$disk}{slotinfo} = "$controllertype" . ":::";
+#    }
 }
 sub sltinf_lsiutil {
     my $ctrlmodule = $_[0];
@@ -87,7 +87,7 @@ sub sltinf_lsiutil {
     my $controller;
 
     print "getting # of installed controllers from $infprog\n"  if $main::verbose;
-    open (PROGOUT, "echo 0 | $infprog |" || die "getting controllercount from $infprog failed");
+    open (PROGOUT, "echo 0 | $infprog |") || die "getting controllercount from $infprog failed";
 # expected output
 # 
 # LSI Logic MPT Configuration Utility, Version 1.56, March 19, 2008
@@ -112,7 +112,7 @@ sub sltinf_lsiutil {
 
     foreach $controller ( @controlleridxs ) {
 	print "$infprog: reading controller $controller\n" if $main::verbose;
-	open (PROGOUT, "$infprog -p $controller -a 42,0,0 |" || die "getting infos from $infprog controller #$controller failed");
+	open (PROGOUT, "$infprog -p $controller -a 42,0,0 |") || die "getting infos from $infprog controller #$controller failed";
 # get info for all disks
 
 # expected output
@@ -210,7 +210,7 @@ sub sltinf_sas23ircu {
     }
 
     print "getting # of installed controllers from $infprog\n"  if $main::verbose;
-    open (PROGOUT, "$infprog LIST |" || die "getting controllercount from $infprog failed");
+    open (PROGOUT, "$infprog LIST |") || die "getting controllercount from $infprog failed";
 # expected output
 # LSI Corporation SAS2 IR Configuration Utility.
 # Version 16.00.00.00 (2013.03.01)
@@ -239,7 +239,7 @@ sub sltinf_sas23ircu {
     # get diskidentifier per slot
     foreach $controller ( @controlleridxs ) {
 	print "$infprog: reading controller $controller\n" if $main::verbose;
-	open (PROGOUT, "$infprog $controller DISPLAY |" || die "getting infos from $infprog controller #$controller failed");
+	open (PROGOUT, "$infprog $controller DISPLAY |") || die "getting infos from $infprog controller #$controller failed";
 # expected output
 
 ## # sas2ircu 0 DISPLAY
@@ -529,7 +529,7 @@ sub sltinf_storcli {
 	exit 2;
     }
     print "getting # of installed controllers from $infprog\n"  if $main::verbose;
-    open (PROGOUT, "$infprog show ctrlcount |" || die "getting controllercount from $infprog failed");
+    open (PROGOUT, "$infprog show ctrlcount |") || die "getting controllercount from $infprog failed";
     while (<PROGOUT>) {
 	chomp;
 	if ($_ =~ /Controller Count = (\d+)/) {
@@ -548,9 +548,9 @@ sub sltinf_storcli {
 
 	print "$infprog: reading controller $controllerId\n" if $main::verbose;
 	# get enclosure info
-	open (PROGOUT, "$infprog /c$controllerId/eall show |" || die "getting enclosure infos from $infprog controller #$controllerId failed");
+	open (PROGOUT, "$infprog /c$controllerId/eall show |") || die "getting enclosure infos from $infprog controller #$controllerId failed";
 # sample output
-## # storcli /c0/eall show  | less
+## # storcli /c0/eall show
 ## CLI Version = 007.1623.0000.0000 May 17, 2021
 ## Operating system = Linux 6.5.11-7-pve
 ## Controller = 0
@@ -581,7 +581,7 @@ sub sltinf_storcli {
 	# get phys disk info per enclosure
 	while ( $enclosureId = pop ( @encloseidxs ) ) {
 	    print "$infprog: reading disk info for controller $controllerId enclosure $enclosureId\n" if $main::verbose;
-	    open (PROGOUT, "$infprog /c$controllerId/e$enclosureId/sall show all |" || die "getting disk infos from $infprog controller #$controllerId enclosure $enclosureId failed");
+	    open (PROGOUT, "$infprog /c$controllerId/e$enclosureId/sall show all |") || die "getting disk infos from $infprog controller #$controllerId enclosure $enclosureId failed";
 # sample output
 ## CLI Version = 007.1623.0000.0000 May 17, 2021
 ## Operating system = Linux 6.5.11-7-pve

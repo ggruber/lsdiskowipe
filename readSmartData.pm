@@ -5,6 +5,7 @@
 package lsdiskowipe::readSmartData;
 use strict;
 use warnings;
+use lsdiskowipe::getRAIDdisks;
 use Data::Dumper;
 
 sub sortDiskNames {
@@ -77,7 +78,10 @@ sub readSmartData {
     foreach my $line (@hddData) {
 	print $line if ( $main::debug );
         chomp $line;
-        if ($line =~ /^\[(\d+):(\d+):(\d+):(\d+)\](.*)\/dev\/(sd\w+)\s+\/dev\/(\w+)\n?/) {
+	# [0:0:0:0]    disk    ATA      WDC WD2000F9YZ-0 1A02  /dev/sda   /dev/sg0
+	# [0:2:3:0]    disk    DELL     PERC H710        3.13  /dev/sda   /dev/sg1
+	# [N:0:0:1]    disk    INTEL SSDPEK1W060GA__1                     /dev/nvme0n1  -
+        if ($line =~ /^\[(\d+):(\d+):(\d+):(\d+)\]\s+disk\s+(.*\S)\s+\/dev\/(sd\w+)\s+\/dev\/(\w+)\n?/) {
 	    next if ( grep ( /^\/dev\/$5$/, @$uc_blacklist ) );  # omit uc blacklisted disks
             $hdd{$6}{host}    = $1;
             $hdd{$6}{channel} = $2;
@@ -86,7 +90,7 @@ sub readSmartData {
             $hdd{$6}{descrip} = $5;
             $hdd{$6}{sata}    = $6;
             $hdd{$6}{scsi}    = $7;
-        } elsif ($line =~ /^\[(N:\d+):(\d+):(\d+)\](.*)\/dev\/(nvme\w+)n1\s+\-\n?/) {
+        } elsif ($line =~ /^\[(N:\d+):(\d+):(\d+)\]\s+disk\s+(.*\S)\s+\/dev\/(nvme\w+)n1\s+\-\n?/) {
 	    next if ( grep ( /^\/dev\/$4$/, @$uc_blacklist ) );  # omit uc blacklisted disks
 	    $hdd{$5}{host}    = $1;
             $hdd{$5}{id}      = $2;
@@ -104,29 +108,26 @@ sub readSmartData {
 	}
     }
     #
-    # kind of main loop
+    # kind of doubled main loop
     # gather "basic" information from all disks
     #
-    # here goes the detection of physical disks of a hardware RAID per virtual disk shown to os
-    # so split logical disk in its physical components
-    # %PDfromRAID = {
-    # 	"megaraid_sas"	=> "VD2PD_megaraid_sas",
-    # 	"3w-9xxx"	=> "VD2PD_3w-9xxx",
-    # 	"aacraid"	=> "VD2PD_aacraid",
-    # }
-    # foreach my $hddId ( sort sortDiskNames keys %hdd ) {
-    # 	my $host       = $hdd{$hddId}{host};
-    # 	my $driver =  $ctrl{$host}{driver} ? $ctrl{$host}{driver} : 'unknown' ;
+    # first: are there Virtual Disks (VD) from RAID Controller?
+    #        -> get the physical disks
     #
-    # 	if ( defined $PDfromRAID->$driver ) {
-    # 	    my $VD2PD = "$PDfromRAID->$driver ( \%hdd );";
-    # 	    eval $VD2PD:
-    # 	}
-    # }
-    #
+    lsdiskowipe::getRAIDdisks::getRAIDdisks ( \%hdd, \%ctrl );
+
+    # we possibly now have RAID disks injected with disknames with appendices like sda.0, sda.1 ...
+    # (keys in hash should be unique, shouldn't they?)
+
     # quirk
     my $megaraid_sas_id = 0;
+
+    #
+    # second: get the details from the physical disks
+    #
     foreach my $hddId ( sort sortDiskNames keys %hdd ) {
+	my $lhddId;	# logical hhdId
+	my $phddId;	# physical hhdId
         my @smartData;
 	my @T10PI_Data;
 	my @HPA_Data;
@@ -140,7 +141,9 @@ sub readSmartData {
 	my $driver =  $ctrl{$host}{driver} ? $ctrl{$host}{driver} : 'unknown' ;
 	print "hddId:driver $hddId:$driver\n" if $main::debug;
 	$smart->{$hddId}{driver} = $driver;
-	    
+
+	# should be reviewed and better handled as regular RAID disks
+	# code will possibly work never more
         if ( $ctrl{$host}{driver} eq "3w-9xxx" ) {
             foreach my $twHdd (@{ $ctrl{$host}{twData} }) {
                 if ( $twHdd =~ /^p(\d+)\s+\w+\s+u$hdd{$hddId}{id}.*$/i ) {
@@ -152,11 +155,24 @@ sub readSmartData {
 	    $smart->{$hddId}{rotation} = "SSD";
 	}
 
+	# some handling for RAID physical disks
+	if ( $hddId !~ /\./ ) {
+	    $lhddId = $hddId;
+	} else {
+	    $lhddId = $hdd{$hddId}{sata} ? $hdd{$hddId}{sata} : $hddId;
+	    if ( defined $hdd{$hddId}{DID} ) {
+		$phddId = $hdd{$hddId}{DID};
+	    } else {
+		print "Error: missing physical driveID for disk $hddId, so skipping it\n";
+		next;
+	    }
+	}
+
         my %ctrlChoice = (
-            "ahci"          => sub { @smartData = `smartctl -a /dev/$hddId` },
-            "uas"           => sub { @smartData = `smartctl -a /dev/$hddId` },
-            "pata_jmicron"  => sub { @smartData = `smartctl -a /dev/$hddId` },
-            "nvme"          => sub { @smartData = `smartctl -a /dev/$hddId` },
+            "ahci"          => sub { @smartData = `smartctl -a /dev/$lhddId` },
+            "uas"           => sub { @smartData = `smartctl -a /dev/$lhddId` },
+            "pata_jmicron"  => sub { @smartData = `smartctl -a /dev/$lhddId` },
+            "nvme"          => sub { @smartData = `smartctl -a /dev/$lhddId` },
 	    "usb-storage"   => sub { @smartData = `smartctl -a /dev/$hdd{$hddId}{scsi}` },
             # not seen SAS disks on ahci, uas or nvme so -a seems sufficient
             # else -x to get interface speed for SAS drives
@@ -165,26 +181,28 @@ sub readSmartData {
             "mptsas"        => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
             "mpt2sas"       => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
             "mpt3sas"       => sub { @smartData = `smartctl -x /dev/$hdd{$hddId}{scsi}` },
-            "megaraid_sas"  => sub { @smartData = `smartctl -x -d megaraid,$megaraid_sas_id /dev/$hddId` },
+            "megaraid_sas"  => sub { @smartData = `smartctl -x -d megaraid,$phddId /dev/$lhddId` },
             "aacraid"       => sub { @smartData = `smartctl -x $hdd{$hddId}{scsi}` }
             # aacraid SAS does only work without -d sat. A solution for SATA and SAS still needs to be implemented.
         );
 
+	# problems with disks from RAID drives here
 	my %ctrlChoice2 = (
-            "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
-            "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
-            "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
-            "pata_jmicron"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
-	    "usb-storage"   => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
+            "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
+            "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
+            "pata_jmicron"  => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
+	    "usb-storage"   => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$lhddId}{scsi} 2>/dev/null` },
             "3w-9xxx"       => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
             "3w-sas"        => sub { @T10PI_Data = `sg_readcap -l -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
-            "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
-            "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
-            "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mptsas"        => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$lhddId}{scsi} 2>/dev/null` },
+            "mpt2sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$lhddId}{scsi} 2>/dev/null` },
+            "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$lhddId}{scsi} 2>/dev/null` },
             "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
             "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi} 2>/dev/null` }
         );
 
+	# problems with disks from RAID drives here
 	my %ctrlChoice3 = (
             "ahci"          => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
             "nvme"          => sub { @HPA_Data = `hdparm -N /dev/$hddId 2>/dev/null` },
@@ -200,6 +218,7 @@ sub readSmartData {
             "aacraid"       => sub { @HPA_Data = `hdparm -N $hdd{$hddId}{scsi} 2>/dev/null` }
         );
 
+	# problems with disks from RAID drives here
 	my %ctrlChoice4 = (
             "ahci"          => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
             "nvme"          => sub { @DCO_Data = `hdparm --dco-identify /dev/$hddId 2>/dev/null` },
@@ -221,7 +240,7 @@ sub readSmartData {
 	#
         if ( defined $ctrlChoice{ $ctrl{$host}{driver} } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
-            $ctrlChoice{ $ctrl{$host}{driver} }->();
+            $ctrlChoice{ $ctrl{$host}{driver} }->();	# here work gets done
 	    # if there are some slow SAS disks show activity
             print ".";
 	    # quirk #2
@@ -467,10 +486,9 @@ sub readSmartData {
         }
 	if ( not ( $smart->{$hddId}{vendor} or  $smart->{$hddId}{devModel} and  $smart->{$hddId}{serial} ) and ( $hddId !~ /nvme/i ) ) {
 	    my $diskinfo = $hdd{$hddId}{descrip};
-	    $diskinfo =~ s/\s+/ /g;
-	    $diskinfo =~ s/^ (.*) /$1/;
 	    print "\nno basic information/unsupported disk $hddId ($diskinfo), omitting it\n";
 	    delete $smart->{$hddId};
+	    delete $hdd{$hddId};
 	    next;
 	}
 #	if ( not defined $smart->{$hddId}{vendor} or not defined $smart->{$hddId}{devModel} or not defined $smart->{$hddId}{serial} ) {
@@ -514,7 +532,7 @@ sub readSmartData {
 	#
 	# info about Host Protected Areas
 	#
-	$smart->{$hddId}{HPA} = ' - ' until defined $smart->{$hddId}{HPA};
+	$smart->{$hddId}{HPA} = 'n/a' until defined $smart->{$hddId}{HPA};
         if ( defined $ctrlChoice3{ $ctrl{$host}{driver} } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
             $ctrlChoice3{ $ctrl{$host}{driver} }->();
@@ -540,7 +558,7 @@ sub readSmartData {
 	#
 	# info about Device Configuration Overlay
 	#
-	$smart->{$hddId}{DCO} = ' - ' until defined $smart->{$hddId}{DCO};
+	$smart->{$hddId}{DCO} = 'n/a' until defined $smart->{$hddId}{DCO};
         if ( defined $ctrlChoice4{ $ctrl{$host}{driver} } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
             $ctrlChoice4{ $ctrl{$host}{driver} }->();
@@ -741,9 +759,12 @@ sub readFARMdata {
     foreach my $line (@smartctlVersion) {
 	chomp $line;
 	if ( $line =~ /^smartctl\s+(\d+\.\d+)\s+/ ) {
+	    print "smartctl version: $1\n" if ( $main::verbose );
 	    if ( $1 >= 7.4 ) {
 	        $smartctl74 = 1;
-            }
+            } else {
+		print "smartctl version is below 7.4, so no FARM data available\n" if ( $main::verbose );
+	    }
         }
     }
 }

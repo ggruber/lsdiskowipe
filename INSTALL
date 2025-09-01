@@ -33,8 +33,10 @@ fi
 # make sure helper programs are available
 for i in lsscsi lspci smartctl readlink sg_readcap hdparm nvme; do
 	if ! has_program $i ; then
-		if [ "$i" == "lspci" ] ; then
-			i=pciutils
+                if [ "$i" == "lsscsi" ] ; then
+                        i=lsscsi
+                elif [ "$i" == "lspci" ] ; then
+ 			i=pciutils
 		elif [ "$i" == "smartctl" ] ; then
 			i=smartmontools
 		elif [ "$i" == "readlink" ] ; then

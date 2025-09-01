@@ -22,7 +22,7 @@ my @smartDiff;
 my $line;
 my $key;
 
-$main::VERSION = '1.10.2';
+$main::VERSION = '1.11.0';
 $Getopt::Std::STANDARD_HELP_VERSION=1;
 
 our %opts;
