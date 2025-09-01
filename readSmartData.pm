@@ -816,8 +816,16 @@ sub readFARMdata {
 	    print "Unimplemented Controller: $cntrlr, please file a feature request for it.\n";
 	    next;
 	}
+	my $FARMstate;  # general state
 	my $PoH;	# PowerOnHours
 	my $AssDate;	# Assembly Date
+
+	my @FARMstate = grep ( /^FARM log .* not supported\s*/, @FARMdata ) ;
+	if ( scalar (@FARMstate) ge 1 ) {
+	    # Seagate disk without FARM data
+	    print "-";
+	    next;
+	}
 	my @PoH = grep ( /^\s+Power on Hours:\s+\d+\s*$/, @FARMdata );
 	if ( scalar (@PoH) eq 1 ) {
 	    ( $PoH ) = @PoH;

@@ -67,6 +67,8 @@ MODPATH=$( perl -e '@modpath=grep(/local/, @INC); print $modpath[$#modpath]' )
 # use a subdirectory for our modules
 MODPATH=$MODPATH/lsdiskowipe
 
+echo "installing to $MODPATH"
+
 if [ "y$MODPATH" == "y" ] ; then
 	echo "${0}: could not determine the local path for dropping perl modules"
 	echo "aborting"
