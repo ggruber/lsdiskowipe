@@ -119,9 +119,6 @@ sub readSmartData {
     # we possibly now have RAID disks injected with disknames with appendices like sda.0, sda.1 ...
     # (keys in hash should be unique, shouldn't they?)
 
-    # quirk
-    my $megaraid_sas_id = 0;
-
     #
     # second: get the details from the physical disks
     #
@@ -158,6 +155,14 @@ sub readSmartData {
 	# some handling for RAID physical disks
 	if ( $hddId !~ /\./ ) {
 	    $lhddId = $hddId;
+	    if ( defined $hdd{$hddId}{JBOD} and $hdd{$hddId}{JBOD} == 1 ) {
+		if ( defined $hdd{$hddId}{DID} ) {
+		    $phddId = $hdd{$hddId}{DID};
+		} else {
+		    print "Error: missing physical driveID for JBOD disk $hddId, so skipping it\n";
+		    next;
+		}
+	    }
 	} else {
 	    $lhddId = $hdd{$hddId}{sata} ? $hdd{$hddId}{sata} : $hddId;
 	    if ( defined $hdd{$hddId}{DID} ) {
@@ -245,7 +250,7 @@ sub readSmartData {
             print ".";
 	    # quirk #2
 	    if ( $ctrl{$host}{driver} eq "megaraid_sas" ) {
-		$megaraid_sas_id++;
+		# magic controller change here?
 	    }
         } else {
 	    print "Unimplemented Controller: $ctrl{$host}{driver}, please file a feature request for it.\n";
@@ -511,9 +516,19 @@ sub readSmartData {
 	$smart->{$hddId}{has_cryProt} = 'n/a' until defined $smart->{$hddId}{has_cryProt};
 	$smart->{$hddId}{cryProtAct} = 'n/a'  until defined $smart->{$hddId}{cryProtAct};
 
-        if ( defined $ctrlChoice2{ $ctrl{$host}{driver} } ) {
+	# JBOD disks might get special treatment, even if accessed via a certain controller driver
+	# for the following infos to gather it seems possible to access them like ahci disks
+
+	my $controllerType = $ctrl{$host}{driver};
+
+	if ( defined $hdd{$hddId}{JBOD} && $hdd{$hddId}{JBOD} == 1) {
+	    # proactive: currently there is no way of getting these information from RAID member disks implemented
+	    $controllerType = "ahci";
+	    print "JBOD" if $main::verbose;
+	}
+        if ( defined $ctrlChoice2{ $controllerType } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
-            $ctrlChoice2{ $ctrl{$host}{driver} }->();
+            $ctrlChoice2{ $controllerType }->();
 	    # if there are some slow SAS disks show activity
             print "'";
 	    foreach my $line (@T10PI_Data) {
@@ -538,9 +553,9 @@ sub readSmartData {
 	# info about Host Protected Areas
 	#
 	$smart->{$hddId}{HPA} = 'n/a' until defined $smart->{$hddId}{HPA};
-        if ( defined $ctrlChoice3{ $ctrl{$host}{driver} } ) {
+        if ( defined $ctrlChoice3{ $controllerType } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
-            $ctrlChoice3{ $ctrl{$host}{driver} }->();
+            $ctrlChoice3{ $controllerType }->();
 	    # if there are some slow SAS disks show activity
             print ",";
 	    foreach my $line (@HPA_Data) {
@@ -564,9 +579,9 @@ sub readSmartData {
 	# info about Device Configuration Overlay
 	#
 	$smart->{$hddId}{DCO} = 'n/a' until defined $smart->{$hddId}{DCO};
-        if ( defined $ctrlChoice4{ $ctrl{$host}{driver} } ) {
+        if ( defined $ctrlChoice4{ $controllerType } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
-            $ctrlChoice4{ $ctrl{$host}{driver} }->();
+            $ctrlChoice4{ $controllerType }->();
 	    # if there are some slow SAS disks show activity
             print "`";
 	    foreach my $line (@DCO_Data) {

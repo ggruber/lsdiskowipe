@@ -68,26 +68,6 @@ sub VD2PD_megaraid_sas {
         exit 2;
     }
 
-###    # get controller count
-###    my @controlleridxs;
-###    my $controller;
-###    my $controllercnt;
-###
-###    print "getting # of installed controllers from $infprog\n"  if $main::verbose;
-###    open (PROGOUT, "$infprog show ctrlcount |") || die "getting controllercount from $infprog failed";
-###    while (<PROGOUT>) {
-###        chomp;
-###        if ($_ =~ /Controller Count = (\d+)/) {
-###            $controllercnt = $1
-###        }
-###    }
-###    close (PROGOUT);
-###    for ( my $i = 0; $i < $controllercnt; $i++ ) {
-###        push ( @controlleridxs, $i );
-###    }
-###    print "$infprog: Controllers found ( " . scalar @controlleridxs ." ), index: @controlleridxs\n"  if $main::debug;
-###    foreach my $controllerId ( @controlleridxs ) {
-###
     print "$infprog: reading controller $ctrlidx\n" if $main::verbose;
     # get disk distribution info
     open (PROGOUT, "$infprog /c$ctrlidx show |") || die "getting infos from $infprog controller #$ctrlidx failed";
@@ -154,12 +134,53 @@ sub VD2PD_megaraid_sas {
 ## CFShld-Configured shielded|Cpybck-CopyBack|CBShld-Copyback Shielded
 ## 
 ## ...
+
+## or (in case of JBOD disks configured)
+## ...
+## JBOD LIST :
+## =========
+## 
+## -------------------------------------------------------------------------------
+## EID:Slt DID State DG     Size Intf Med SED PI SeSz Model               Sp Type
+## -------------------------------------------------------------------------------
+## 32:0      0 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## 32:1      1 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## 32:2      2 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## 32:3      3 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## -------------------------------------------------------------------------------
+## 
+## ID=JBOD Target ID|EID=Enclosure Device ID|Slt=Slot No|DID=Device ID|Onln=Online
+## Offln=Offline|Intf=Interface|Med=Media Type|SeSz=Sector Size
+## SED=Self Encryptive Drive|PI=Protection Info|Sp=Spun|U=Up|D=Down
+## 
+## Physical Drives = 4
+## 
+## PD LIST :
+## =======
+## 
+## -------------------------------------------------------------------------------
+## EID:Slt DID State DG     Size Intf Med SED PI SeSz Model               Sp Type
+## -------------------------------------------------------------------------------
+## 32:0      0 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## 32:1      1 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## 32:2      2 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## 32:3      3 JBOD  -  1.746 TB SATA SSD N   N  512B INTEL SSDSC2KB019TZ U  -
+## -------------------------------------------------------------------------------
+## ...
+## 
+## in this JBOD case the caption is the same for JBOD LIST and PD LIST (both look
+## the same way as PD LIST for RAID) but without preceding TOPOLOGY section
+## that is: we simply see no DG (drive group)
+
     my @TOPology;
     my $TOPfound = 0; # 0: not yet, 1: Caption found, 2: first separator, 3: 2nd separator, we're off 
     my @VDlist;
     my $VDfound = 0;  # like TOPfound
+    my @JBODlist;
+    my $JBODfound = 0; #same procedure
 
     while (<PROGOUT>) {
+	# print;
 	chomp;
 	# first we expect TOPOLOGY INFO
 	# we need TOPOLOGY INFO later, so we save it 
@@ -196,45 +217,78 @@ sub VD2PD_megaraid_sas {
 	} elsif ( $VDfound == 3 ) {
 	    # we're done
 	    last;
+	} elsif ( $JBODfound == 0 and $_ =~ /^EID:Slt\s+DID\s+State\s+DG\s+/ ) {
+	    $JBODfound = 1;
+	    push @JBODlist, $_;
+	} elsif ( $JBODfound == 1 ) {
+	    if ( $_ =~ /^---------------------------/ ) {
+		$JBODfound = 2;
+	    } else {
+	        print "unexpected situation 3 in $infprog parsing, have $_\n";
+	    }
+	} elsif ( $JBODfound == 2 ) {
+	    if ( $_ =~ /^---------------------------/ ) {
+	        $JBODfound = 3;
+	    } else {
+	        push @JBODlist, $_;
+	    }
+	} elsif ( $JBODfound == 3 ) {
+	    # that's it
+	    last;
 	}
 
     }
     close (PROGOUT);
-#    print Dumper ( @TOPology );
-#    print Dumper( @VDlist );
+
+    print "TOPOLOGY found: $TOPfound\nVirtualDisks found: $VDfound\nJBOD found: $JBODfound\n" if $main::debug;
 
     foreach my $hddId (@$p_disks) {
 	my $pDiskIdx = 0;
 	my %curHdd = %$p_hdd{$hddId};
 	my $DG;
 	my $VD;
+	my $DID;
 	my $curVD = $$p_hdd{$hddId}{id};
-	# find matching VD to get DG from VDLIST
-	foreach my $VDline ( @VDlist ) {
-	    if ( $VDline =~ /^(\d+)\/(\d+)\s+/ ) {
-		$DG = $1;
-		$VD = $2;
-		if ( $curVD == $VD ) {
-		    print "disk $hddId DG: $DG VD: $VD\n" if $main::debug;
-		    # we assume we find only one DG per logical disk
-		    last;
+	if ( $VDfound == 3 ) {
+	    # find matching VD to get DG from VDLIST
+	    foreach my $VDline ( @VDlist ) {
+		if ( $VDline =~ /^(\d+)\/(\d+)\s+/ ) {
+		    $DG = $1;
+		    $VD = $2;
+		    if ( $curVD == $VD ) {
+			print "disk $hddId DG: $DG VD: $VD\n" if $main::debug;
+			# we assume we find only one DG per logical disk
+			last;
+		    }
+		}
+	    }
+	    # and now get the DID (drive IDs) for the physical disks
+	    foreach my $TOPline ( @TOPology ) {
+		if ( $TOPline =~ /^\s+$DG\s+\d+\s+\d+\s+[\d:]+\s+(\d+)\s+DRIVE\s+/ ) {
+		    $DID = $1;
+    #	    	print "matching TOPline $TOPline\n";
+    #		print Dumper ($curHdd{$hddId});
+		    $p_hdd->{"$hddId.$pDiskIdx"} = $curHdd{$hddId};
+		    $p_hdd->{"$hddId.$pDiskIdx"}{DID} = $DID;
+		    delete $p_hdd->{$hddId} if ($pDiskIdx == 0);
+		    $pDiskIdx++;
+		}
+	    }
+	} elsif ( $JBODfound == 3 ) {
+	    # handle JBOD disks
+	    foreach my $JBODline ( @JBODlist ) {
+	        if ( $JBODline =~ /^\d+:\d+\s+$curVD\s+JBOD\s+\-\s+/ ) {
+		    $DID = $curVD;
+		    # the id from the lsscsi -g is our DID apparently
+		    # let's label this disk
+		    $p_hdd->{$hddId}{JBOD} = 1;
+		    $p_hdd->{$hddId}{DID} = $DID;
 		}
 	    }
 	}
-	# and now get the DID (drive IDs) for the physical disks
-	my $DID;
-	foreach my $TOPline ( @TOPology ) {
-	    if ( $TOPline =~ /^\s+$DG\s+\d+\s+\d+\s+[\d:]+\s+(\d+)\s+DRIVE\s+/ ) {
-		$DID = $1;
-#	    	print "matching TOPline $TOPline\n";
-#		print Dumper ($curHdd{$hddId});
-		$p_hdd->{"$hddId.$pDiskIdx"} = $curHdd{$hddId};
-		$p_hdd->{"$hddId.$pDiskIdx"}{DID} = $DID;
-		delete $p_hdd->{$hddId} if ($pDiskIdx == 0);
-		$pDiskIdx++;
-	    }
-	}
+
     }
+
 #    print Dumper (%$p_hdd);
     
 ###    }
