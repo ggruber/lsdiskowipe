@@ -668,6 +668,8 @@ sub consolidateDrives {
 			$smart->{$disk}{vendor} = $1;
 		    } elsif ( $smart->{$disk}{devModel} =~ /(WD)/i ) {
 			$smart->{$disk}{vendor} = $1;
+		    } elsif ( $smart->{$disk}{devModel} =~ /(Micron)/i ) {
+			$smart->{$disk}{vendor} = $1;
 		}
 	    }
 	}
@@ -852,15 +854,20 @@ sub readFARMdata {
 	} else {
 	    print "ambiguous FARM Power on Hours for $hddId\n";
 	}
-	my @AssDate = grep ( /^\s+Assembly Date \(YYWW\):\s+\d{4}\s*$/, @FARMdata );
+	my @AssDate = grep ( /^\s+Assembly Date \(YYWW\):/, @FARMdata );
 	if ( scalar (@AssDate)  eq 1 ) {
 	    ( $AssDate ) = @AssDate;
 	    if ( $AssDate =~ /^\s+Assembly Date \(YYWW\):\s+(\d)(\d)(\d)(\d)\s*$/ ) {
 		$AssDate = "$4$3/$2$1";
-		$smart->{$hddId}{FARMassdate} = $AssDate;
-		$main::FARMAvailable++;
-		print "disk $hddId AssDate (WW/YY): $AssDate\n" if ( $main::debug );
+	    } elsif ( $AssDate =~ /^\s+Assembly Date \(YYWW\):\s*$/ ) {
+		$AssDate = "not set";
+	    } else {
+		print "ambiguous FARM Assembly Date for $hddId: $AssDate\n";
+		$AssDate = "weird";
 	    }
+	    $smart->{$hddId}{FARMassdate} = $AssDate;
+	    $main::FARMAvailable++;
+	    print "disk $hddId AssDate (WW/YY): $AssDate\n" if ( $main::debug );
 	} else {
 	    print "ambiguous FARM Assembly Date for $hddId\n";
 	}
