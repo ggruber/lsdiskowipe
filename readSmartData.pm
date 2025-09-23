@@ -433,6 +433,9 @@ sub readSmartData {
                 elsif ( $line =~ /.+\sTemperature_Celsius[^(]+\s(\d+)/i ) {
                     $smart->{$hddId}{temp} = $1;
                 }
+                elsif ( $line =~ /.+\sTemperature_Internal[^(]+\s(\d+)/i ) {
+                    $smart->{$hddId}{temp} = $1;
+                }
                 elsif ( $line =~ /No\sErrors\sLogged$/i ) {
                     $smart->{$hddId}{numErr} = 0;
                 }

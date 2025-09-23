@@ -289,7 +289,7 @@ sub VD2PD_megaraid_sas {
 
     }
 
-#    print Dumper (%$p_hdd);
+    print Dumper (%$p_hdd) if $main::Debug;
     
 ###    }
 }
