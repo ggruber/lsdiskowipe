@@ -127,8 +127,11 @@ sub readSmartData {
 	my $phddId;	# physical hhdId
         my @smartData;
 	my @T10PI_Data;
+	my @CRYPT_Data;
 	my @HPA_Data;
 	my @DCO_Data;
+	my $inSecurity = 0;
+	my $securitySupported = 0;
 	my $SASignoreNextIFSpeed = 0;
         my $host       = $hdd{$hddId}{host};
 	print "hddId\{host\}: $hddId\{$host\} " if $main::debug;
@@ -192,7 +195,7 @@ sub readSmartData {
         );
 
 	# problems with disks from RAID drives here
-	my %ctrlChoice2 = (
+	my %ctrlChoice2a = (
             "ahci"          => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
             "nvme"          => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
             "uas"           => sub { @T10PI_Data = `sg_readcap -l /dev/$lhddId 2>/dev/null` },
@@ -205,6 +208,21 @@ sub readSmartData {
             "mpt3sas"       => sub { @T10PI_Data = `sg_readcap -l /dev/$hdd{$lhddId}{scsi} 2>/dev/null` },
             "megaraid_sas"  => sub { @T10PI_Data = `sg_readcap -l /dev/$hddId 2>/dev/null` },
             "aacraid"       => sub { @T10PI_Data = `sg_readcap -l $hdd{$hddId}{scsi} 2>/dev/null` }
+        );
+
+	my %ctrlChoice2b = (
+            "ahci"          => sub { @CRYPT_Data = `hdparm -I /dev/$hddId 2>/dev/null` },
+            "nvme"          => sub { @CRYPT_Data = `hdparm -I /dev/$hddId 2>/dev/null` },
+            "uas"           => sub { @CRYPT_Data = `hdparm -I /dev/$hddId 2>/dev/null` },
+            "pata_jmicron"  => sub { @CRYPT_Data = `hdparm -I /dev/$hddId 2>/dev/null` },
+            "usb-storage"   => sub { @CRYPT_Data = `hdparm -I /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "3w-9xxx"       => sub { @CRYPT_Data = `hdparm -I -d 3ware,$hdd{$hddId}{twId} /dev/twa$ctrl{$host}{twa} 2>/dev/null` },
+            "3w-sas"        => sub { @CRYPT_Data = `hdparm -I -d 3ware,$hdd{$hddId}{id} /dev/$hddId 2>/dev/null` },
+            "mptsas"        => sub { @CRYPT_Data = `hdparm -I /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt2sas"       => sub { @CRYPT_Data = `hdparm -I /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "mpt3sas"       => sub { @CRYPT_Data = `hdparm -I /dev/$hdd{$hddId}{scsi} 2>/dev/null` },
+            "megaraid_sas"  => sub { @CRYPT_Data = `hdparm -I /dev/$hddId 2>/dev/null` },
+            "aacraid"       => sub { @CRYPT_Data = `hdparm -I $hdd{$hddId}{scsi} 2>/dev/null` }
         );
 
 	# problems with disks from RAID drives here
@@ -239,7 +257,6 @@ sub readSmartData {
             "aacraid"       => sub { @DCO_Data = `hdparm --dco-identify $hdd{$hddId}{scsi} 2>/dev/null` }
         );
 
-        
 	#
 	# get majority of SMART information
 	#
@@ -526,9 +543,9 @@ sub readSmartData {
 	    $controllerType = "ahci";
 	    print "JBOD" if $main::verbose;
 	}
-        if ( defined $ctrlChoice2{ $controllerType } ) {
+        if ( defined $ctrlChoice2a{ $controllerType } ) {
             #print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
-            $ctrlChoice2{ $controllerType }->();
+            $ctrlChoice2a{ $controllerType }->();
 	    # if there are some slow SAS disks show activity
             print "'";
 	    foreach my $line (@T10PI_Data) {
@@ -547,6 +564,124 @@ sub readSmartData {
 
         } else {
 	    print "Unimplemented Controller: $ctrl{$host}{driver} for cryto check, please file a feature request for it.\n";
+	}
+	#
+	# another way of detecting encrytion capabilities, esspecially for SSDs
+	#
+	# looks lile
+	#
+	## ...
+	## Security:
+	##         Master password revision code = 65534
+	##                 supported
+	##         not     enabled
+	##         not     locked
+	##         not     frozen
+	##         not     expired: security count
+	##                 supported: enhanced erase
+	##         4min for SECURITY ERASE UNIT. 4min for ENHANCED SECURITY ERASE UNIT.
+	## Logical Unit WWN Device Identifier: 55cd2e404c74eedf
+	## ...
+	#
+	$smart->{$hddId}{cryOpt} = "";
+	$smart->{$hddId}{cryEera} = "";
+        if ( $smart->{$hddId}{transport} ne "sas" ) {
+	    if ( defined $ctrlChoice2b{ $controllerType } ) {
+		#print "hddId: $hddId; id: $hdd{$hddId}{id}; twa: $ctrl{$host}{twa}; twId: $hdd{$hddId}{twId} host: $host\n";
+		$ctrlChoice2b{ $controllerType }->();
+		# if there are some slow SAS disks show activity
+		print ":";
+		foreach my $line (@CRYPT_Data) {
+		    #print $line if $main::Debug;
+		    chomp $line;
+		    if ( $line =~ /^Security:\s*$/ ) {
+			$inSecurity++;
+			print "\n" if $main::Debug;
+			if ($inSecurity > 1 ) {
+			    print "Disk $hddId: oops, inSecurity greater than 1, that's weired\n";
+			}
+		    } elsif ( $inSecurity == 1 ) {
+			next if ( $line =~ /Master password revision code/ );	# ignored line
+			if ( $line =~ /^\S/ ) {
+			    # next chapter, end of Security chapter
+			    $inSecurity = 0;
+			} elsif ( $line =~ /\s+(not){0,1}\s*(supported)(.*)$/ ) {
+			    # can or can not
+			    if ( $securitySupported == 0 and ! defined $1 ) {
+				$smart->{$hddId}{has_cryProt} = $smart->{$hddId}{has_cryProt} eq 'yes' ? 'yes' : 'avail';
+				$securitySupported = 1;
+			    } elsif ($securitySupported == 0 and defined $1 ) {
+			        if ( $1 eq 'not' ) {
+				    $smart->{$hddId}{has_cryProt} = $smart->{$hddId}{has_cryProt} eq 'no' ? 'NO' : 'No';
+				} else {
+				    print "Disk $hddId: weired security enabled line: $line\n";
+				}
+			    } elsif ( $securitySupported == 1 and defined $3 ) {
+				# second line containing "supported", expected to report enhanced erase
+				# print "disk $hddId: '$1' supported \$3: '$3'\n";
+				if ( $3 eq ": enhanced erase" ) {
+				    if ( ! defined $1 ) {
+				        # we have enhanced erase
+					$smart->{$hddId}{cryOpt} = "Eera";
+				    } elsif ( $1 =~ /not/i ) {
+				        $smart->{$hddId}{cryOpt} = "-";
+				    } else {
+				        print "Disk $hddId: weired security feature enhanced erase: $line\n";
+				    }
+				} else {
+				    print "Disk $hddId: unexpected security supported line: $line\n";
+				}
+			    }
+			} elsif ( $line =~ /\s+(not){0,1}\s*(enabled)(.*)$/ ) {
+			    # print "enabled: $line\n";
+			    if ( $securitySupported == 1 ) {
+				if ( ! defined $1 ) {
+				    $smart->{$hddId}{cryProtAct} = $smart->{$hddId}{cryProtAct} = 'yes' ? 'YES' : 'Yes';
+				} elsif ( $1 =~ /not/i ) {
+				    $smart->{$hddId}{cryProtAct} = $smart->{$hddId}{cryProtAct} = 'no' ? 'NO' : 'No';
+				} else {
+				    print "Disk $hddId: unexpected line for Security enabled: $line\n";
+				}
+			    } elsif ( ! defined $1 ) {
+				# security not supported but enabled?
+				print "Disk $hddId: security not supported but enabled? weired.\n";
+			    } elsif ( $1 =~ /not/i ) {
+				# that looks normal then
+				next;
+			    } else {
+				print "Disk $hddId: unexpected line for Security enabled: $line\n";
+			    }
+			} elsif ( $line =~ /\s+(not){0,1}\s*(locked|frozen|expired)(.*)$/ ) {
+			    next; # skip all this for now
+#			    if (defined $3) {
+#				if ( defined $1 ) {
+#				    print "1: $1\t2: $2\t3: $3\n";
+#				} else {
+#				    print "1: \t2: $2\n";
+#				}
+#			    } else {
+#				if ( defined $1 ) {
+#				    print "1: $1\t2: $2\n";
+#				} else {
+#				    print "1: \t2: $2\n";
+#				}
+#			    }
+			} elsif ( $line =~ /^\s*(\d+)min for SECURITY ERASE UNIT\./ ) {
+			    $smart->{$hddId}{cryEera} = $1;
+			    $smart->{$hddId}{cryOpt} = "Sera" if ($smart->{$hddId}{cryOpt} =~ "-"); 
+			    if ( $line =~ /\.\s+(\d+)min for ENHANCED SECURITY ERASE UNIT\./ ) {
+			        $smart->{$hddId}{cryEera} .= "/$1";
+			    } # no else. that missing enhanced security erase time is quite possible
+			} else {
+			    next if ( $line =~ /^\s*$/ );
+			    print "disk $hddId: other line: '$line'\n";
+			}
+		    }
+		}
+
+	    } else {
+		print "Unimplemented Controller: $ctrl{$host}{driver} for cryto2 check, please file a feature request for it.\n";
+	    }
 	}
 
 	#
@@ -626,6 +761,9 @@ sub readSmartData {
     print "\n";
 }
 
+#
+# beautify some writings, prepare a nice output and handle multipath disks
+#
 sub consolidateDrives {
     my $smart = $_[0];
     my $formathelper = $_[1];
@@ -647,6 +785,8 @@ sub consolidateDrives {
 	serial      => "SERIAL",
 	slotinfo    => "CT:C:E:Slot",
 	firmware    => "FIRMWARE",
+	cryOpt      => "CRYOPT",
+	cryEera     => "CRYERA",
 	ifSpeed     => "IFSPEED",
 	reallocSect => "SECTORS",
 	pendsect    => "PENDSECT",
@@ -669,6 +809,8 @@ sub consolidateDrives {
 		    } elsif ( $smart->{$disk}{devModel} =~ /(WD)/i ) {
 			$smart->{$disk}{vendor} = $1;
 		    } elsif ( $smart->{$disk}{devModel} =~ /(Micron)/i ) {
+			$smart->{$disk}{vendor} = $1;
+		    } elsif ( $smart->{$disk}{devModel} =~ /(Toshiba)/i ) {
 			$smart->{$disk}{vendor} = $1;
 		}
 	    }
@@ -893,10 +1035,10 @@ sub printSmartData {
     my $FARMpohHead = $main::FARMAvailable ? "FARMPOH" : "";
     my $FARMdomHead = $main::FARMAvailable ? "FARMDOM" : "";
 
-    $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-6s %s %%-4s %%-7s %%-%ds %%-%ds\n",
-	$formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware},
+    $outFormat = sprintf( "%%-7s %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-3s %%-3s %%-7s %%-6s %%-%ds %%-%ds %%-8s %%-9s %%-%ds %%-5s %%-%ds %%-8s %%-%ds %%-6s %s %%-4s %%-7s %%-%ds %%-%ds\n",
+	$formathelper->{vendor}, $formathelper->{devModel}, $formathelper->{serial}, $formathelper->{slotinfo}, $formathelper->{firmware}, $formathelper->{cryOpt}, $formathelper->{cryEera},
 	$formathelper->{ifSpeed}, $formathelper->{sectSize}, $formathelper->{reallocSect}, $FARMformat, $formathelper->{numErr}, $formathelper->{pendsect} );
-    printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", $SlotHead, "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CAPACITY", "TRANSPORT",
+    printf $outFormat, "DEVICE", "VENDOR", "MODEL", "SERIAL", $SlotHead, "FIRMWARE", "HPA", "DCO", "CRYPROT", "CRYACT", "CRYOPT", "CRYERA", "CAPACITY", "TRANSPORT",
 		       "IFSPEED", "RPM", "SECTSIZE", "HEALTH", "SECTORS", "HOURS", $FARMpohHead, $FARMdomHead, "TEMP", "%REMAIN", "ERRORS", "PENDSECT";
 
     foreach my $disk ( sort sortDiskNames keys %$smart ) {
@@ -912,6 +1054,8 @@ sub printSmartData {
 	    defined $smart->{$disk}{DCO}          ? $smart->{$disk}{DCO}         : "",
 	    defined $smart->{$disk}{has_cryProt}  ? $smart->{$disk}{has_cryProt} : "",
 	    defined $smart->{$disk}{cryProtAct}   ? $smart->{$disk}{cryProtAct}  : "",
+	    defined $smart->{$disk}{cryOpt}       ? $smart->{$disk}{cryOpt}      : "",
+	    defined $smart->{$disk}{cryEera}      ? $smart->{$disk}{cryEera}     : "",
 	    defined $smart->{$disk}{capacity}     ? $smart->{$disk}{capacity}    : "",
 	    defined $smart->{$disk}{transport}    ? $smart->{$disk}{transport}   : "",
 	    defined $smart->{$disk}{ifSpeed}      ? $smart->{$disk}{ifSpeed}     : "",
