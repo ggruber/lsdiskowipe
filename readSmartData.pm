@@ -389,7 +389,7 @@ sub readSmartData {
 		$smart->{$hddId}{pctRemaining} = $1;
 	    }
 	    elsif ( $line =~ /Available_Reservd_Space\s+/i and $line =~ /(\d+)$/ ) {
-		$smart->{$hddId}{pctRemaining} = $1;
+		$smart->{$hddId}{pctRemaining} = $1 unless defined $smart->{$hddId}{pctRemaining};
 	    }
 	    elsif ( $line =~ /Percent_Lifetime_Remain\s+/i and $line =~ /(\d+)$/ ) {
 		$smart->{$hddId}{pctRemaining} = 100 - $1;
@@ -399,18 +399,26 @@ sub readSmartData {
 	    }
 	    elsif ( $line =~ /Wear_Leveling_Count\s+/i ) {
 		# looks dífferent for smartctl -a and smartctl -x
-		if ( $line =~ /Wear_Leveling_Count\s+0x[0-9a-f]+\s+[0]*(\d+)\s/i ) {
+		if ( $line =~ /Wear_Leveling_Count\s+0x[0-9a-f]+\s+.*\s+(\d+)$/i ) {
 		    $smart->{$hddId}{pctRemaining} = $1;
+		    #print "Wear Leveling line0: \'$line\' and remaining $smart->{$hddId}{pctRemaining}";
+		} elsif ( $line =~ /Wear_Leveling_Count\s+0x[0-9a-f]+\s+[0]*(\d+)\s/i ) {
+		    $smart->{$hddId}{pctRemaining} = $1;
+		    #print "Wear Leveling line1: \'$line\' and remaining $smart->{$hddId}{pctRemaining}";
+		} elsif ( $line =~ /Wear_Leveling_Count\s+.*\s+(\d+)$/i ) {
+		    $smart->{$hddId}{pctRemaining} = $1;
+		    #print "Wear Leveling line2: \'$line\' and remaining $smart->{$hddId}{pctRemaining}";
 		} elsif ( $line =~ /Wear_Leveling_Count\s+[A-Z-]+\s+[0]*(\d+)\s/i ) {
 		    $smart->{$hddId}{pctRemaining} = $1;
+		    #print "Wear Leveling line3: \'$line\' and remaining $smart->{$hddId}{pctRemaining}";
 		}
 	    }
+            elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+.*\s+(\d+)$/ ) {
+                $smart->{$hddId}{pctRemaining} = 100 - $1 unless $smart->{$hddId}{pctRemaining};
+            }
 	    elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+0x[0-9a-f]+\s+[0]*(\d+)\s/ ) {
 		$smart->{$hddId}{pctRemaining} = $1;
 	    }
-            elsif ( $line =~ /Media_Wearout_Indicator\s+/i and $line =~ /Media_Wearout_Indicator\s+.*\s+(\d+)$/ ) {
-                $smart->{$hddId}{pctRemaining} = 100 - $1;
-            }
 	    if ( defined $smart->{$hddId}{transport} and $smart->{$hddId}{transport} =~ /[s]*ata/ ) {
                 if ( $line =~ /Reallocated_Sector_Ct.+\s(\d+)$/i or $line =~ /Reallocate_NAND_Blk_Cnt.+\s(\d+)$/i ) {
                     $smart->{$hddId}{reallocSect} = $1;
@@ -834,6 +842,8 @@ sub consolidateDrives {
 	    $vendor =~ s/.*Crucial\/Micron.*SSD.*/Crucial\/Micron/i;
 	    $vendor =~ s/.*WD Blue \/ Red \/ Green SSDs/WDC/i;
 	    $vendor =~ s/.*Micron.*SSD.*/Micron/i;
+	    $vendor =~ s/Samsung.*/Samsung/i;
+	    $vendor =~ s/Fujitsu.*/Fujitsu/i;
 	    $smart->{$disk}{vendor} = $vendor;
 	    # shorten the model by a leading vendor string
 	    $smart->{$disk}{devModel} =~ s/^$vendor[\s_]+//i;
