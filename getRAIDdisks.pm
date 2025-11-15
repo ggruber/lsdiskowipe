@@ -29,7 +29,7 @@ sub getRAIDdisks {
     foreach my $hddId ( sort sortDiskNames keys %$p_hdd ) {
     	my $host    = $$p_hdd{$hddId}{host};	# host is the controller type
     	my $driver  = $p_ctrl->{$host}{driver} ? $p_ctrl->{$host}{driver} : 'unknown' ;
-	my $channel = $$p_hdd{$hddId}{channel};	# channel is id of the controller (needed if mote than one per type exists)
+	my $channel = $$p_hdd{$hddId}{channel};	# channel is id of the controller (needed if more than one per type exists)
     
     	if ( defined $PDfromRAID{$driver} ) {
 	    push @{$PDfromRAID{$driver}{channels}{$channel}{disks}}, $hddId;
@@ -57,6 +57,8 @@ sub VD2PD_megaraid_sas {
     my $channel = $_[2];
     my $p_disks = $_[3];
 
+    $Data::Dumper::Sortkeys = 1;
+#    $Data::Dumper::Terse = 1;
 #    print Dumper ( %$p_hdd );
 #    print Dumper ( $channel );
 #    print Dumper ( @$p_disks );
@@ -77,19 +79,21 @@ sub VD2PD_megaraid_sas {
 ## TOPOLOGY :
 ## ========
 ## 
-## ---------------------------------------------------------------------------
-## DG Arr Row EID:Slot DID Type  State BT     Size PDC  PI SED DS3  FSpace TR
-## ---------------------------------------------------------------------------
-##  0 -   -   -        -   RAID0 Optl  N  931.0 GB dflt N  N   dflt N      N
-##  0 0   -   -        -   RAID0 Optl  N  931.0 GB dflt N  N   dflt N      N
-##  0 0   0   32:0     0   DRIVE Onln  N  931.0 GB dflt N  N   dflt -      N
-##  1 -   -   -        -   RAID0 Optl  N  931.0 GB dflt N  N   dflt N      N
-##  1 0   -   -        -   RAID0 Optl  N  931.0 GB dflt N  N   dflt N      N
-##  1 0   0   32:1     1   DRIVE Onln  N  931.0 GB dflt N  N   dflt -      N
-## ---------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
+## DG Arr Row EID:Slot DID Type  State BT       Size PDC  PI SED DS3  FSpace TR
+## -----------------------------------------------------------------------------
+##  0 -   -   -        -   RAID5 Optl  Y  930.500 GB dsbl N  N   dflt N      N
+##  0 0   -   -        -   RAID5 Optl  Y  930.500 GB dsbl N  N   dflt N      N
+##  0 0   0   252:1    3   DRIVE Onln  N  465.250 GB dsbl N  N   dflt -      N
+##  0 0   1   252:3    0   DRIVE Onln  N  465.250 GB dsbl N  N   dflt -      N
+##  0 0   2   252:2    1   DRIVE Onln  N  465.250 GB dsbl N  N   dflt -      N
+##  1 -   -   -        -   RAID0 Optl  N  148.531 GB dsbl N  N   dflt N      N
+##  1 0   -   -        -   RAID0 Optl  N  148.531 GB dsbl N  N   dflt N      N
+##  1 0   0   252:0    2   DRIVE Onln  N  148.531 GB dsbl N  N   dflt -      N
+## -----------------------------------------------------------------------------
 ## 
 ## DG=Disk Group Index|Arr=Array Index|Row=Row Index|EID=Enclosure Device ID
-## DID=Device ID|Type=Drive Type|Onln=Online|Rbld=Rebuild|Dgrd=Degraded
+## DID=Device ID|Type=Drive Type|Onln=Online|Rbld=Rebuild|Optl=Optimal|Dgrd=Degraded
 ## Pdgd=Partially degraded|Offln=Offline|BT=Background Task Active
 ## PDC=PD Cache|PI=Protection Info|SED=Self Encrypting Drive|Frgn=Foreign
 ## DS3=Dimmer Switch 3|dflt=Default|Msng=Missing|FSpace=Free Space Present
@@ -100,40 +104,49 @@ sub VD2PD_megaraid_sas {
 ## VD LIST :
 ## =======
 ## 
-## --------------------------------------------------------------------
-## DG/VD TYPE  State Access Consist Cache Cac sCC     Size Name
-## --------------------------------------------------------------------
-## 0/2   RAID0 Optl  RW     Yes     RWBD  -   OFF 931.0 GB SSD Group 0
-## 1/3   RAID0 Optl  RW     Yes     RWBD  -   OFF 931.0 GB SSD Group 1
-## --------------------------------------------------------------------
+## ----------------------------------------------------------------
+## DG/VD TYPE  State Access Consist Cache Cac sCC       Size Name
+## ----------------------------------------------------------------
+## 0/0   RAID5 Optl  RW     No      RWTD  -   OFF 930.500 GB diskA
+## 1/1   RAID0 Optl  RW     Yes     RWTD  -   OFF 148.531 GB diskB
+## ----------------------------------------------------------------
 ## 
-## Cac=CacheCade|Rec=Recovery|OfLn=OffLine|Pdgd=Partially Degraded|Dgrd=Degraded
-## Optl=Optimal|RO=Read Only|RW=Read Write|HD=Hidden|TRANS=TransportReady|B=Blocked|
-## Consist=Consistent|R=Read Ahead Always|NR=No Read Ahead|WB=WriteBack|
-## FWB=Force WriteBack|WT=WriteThrough|C=Cached IO|D=Direct IO|sCC=Scheduled
+## VD=Virtual Drive| DG=Drive Group|Rec=Recovery
+## Cac=CacheCade|OfLn=OffLine|Pdgd=Partially Degraded|Dgrd=Degraded
+## Optl=Optimal|dflt=Default|RO=Read Only|RW=Read Write|HD=Hidden|TRANS=TransportReady
+## B=Blocked|Consist=Consistent|R=Read Ahead Always|NR=No Read Ahead|WB=WriteBack
+## AWB=Always WriteBack|WT=WriteThrough|C=Cached IO|D=Direct IO|sCC=Scheduled
 ## Check Consistency
 ## 
-## Physical Drives = 2
+## Physical Drives = 4
 ## 
 ## PD LIST :
 ## =======
 ## 
-## ------------------------------------------------------------------------------
-## EID:Slt DID State DG     Size Intf Med SED PI SeSz Model                   Sp
-## ------------------------------------------------------------------------------
-## 32:0      0 Onln   0 931.0 GB SATA SSD Y   N  512B Samsung SSD 860 EVO 1TB U
-## 32:1      1 Onln   1 931.0 GB SATA SSD Y   N  512B Samsung SSD 860 EVO 1TB U
-## ------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------
+## EID:Slt DID State DG       Size Intf Med SED PI SeSz Model                Sp Type
+## ----------------------------------------------------------------------------------
+## 252:0     2 Onln   1 148.531 GB SATA HDD N   N  512B FUJITSU MJA2160BH G2 U  -
+## 252:1     3 Onln   0 465.250 GB SATA HDD N   N  512B TOSHIBA MQ01ABF050   U  -
+## 252:2     1 Onln   0 465.250 GB SATA HDD N   N  512B TOSHIBA MQ01ABD050   U  -
+## 252:3     0 Onln   0 465.250 GB SATA HDD N   N  512B ST500LM021-1KJ152    U  -
+## ----------------------------------------------------------------------------------
 ## 
-## EID-Enclosure Device ID|Slt-Slot No.|DID-Device ID|DG-DriveGroup
-## DHS-Dedicated Hot Spare|UGood-Unconfigured Good|GHS-Global Hotspare
-## UBad-Unconfigured Bad|Onln-Online|Offln-Offline|Intf-Interface
-## Med-Media Type|SED-Self Encryptive Drive|PI-Protection Info
-## SeSz-Sector Size|Sp-Spun|U-Up|D-Down/PowerSave|T-Transition|F-Foreign
-## UGUnsp-Unsupported|UGShld-UnConfigured shielded|HSPShld-Hotspare shielded
-## CFShld-Configured shielded|Cpybck-CopyBack|CBShld-Copyback Shielded
+## EID=Enclosure Device ID|Slt=Slot No|DID=Device ID|DG=DriveGroup
+## DHS=Dedicated Hot Spare|UGood=Unconfigured Good|GHS=Global Hotspare
+## UBad=Unconfigured Bad|Sntze=Sanitize|Onln=Online|Offln=Offline|Intf=Interface
+## Med=Media Type|SED=Self Encryptive Drive|PI=Protection Info
+## SeSz=Sector Size|Sp=Spun|U=Up|D=Down|T=Transition|F=Foreign
+## UGUnsp=UGood Unsupported|UGShld=UGood shielded|HSPShld=Hotspare shielded
+## CFShld=Configured shielded|Cpybck=CopyBack|CBShld=Copyback Shielded
+## UBUnsp=UBad Unsupported|Rbld=Rebuild
 ## 
 ## ...
+## when calling 
+## smartctl -[a] -d megaraid,[b] /dev/sd[c]
+## a - actual option, 
+## b - DID of the drive to ask for
+## c - the actual virtual drive
 
 ## or (in case of JBOD disks configured)
 ## ...
@@ -244,7 +257,7 @@ sub VD2PD_megaraid_sas {
 
     foreach my $hddId (@$p_disks) {
 	my $pDiskIdx = 0;
-	my %curHdd = %$p_hdd{$hddId};
+	my %curHdd = %{$p_hdd->{$hddId}};
 	my $DG;
 	my $VD;
 	my $DID;
@@ -266,9 +279,9 @@ sub VD2PD_megaraid_sas {
 	    foreach my $TOPline ( @TOPology ) {
 		if ( $TOPline =~ /^\s+$DG\s+\d+\s+\d+\s+[\d:]+\s+(\d+)\s+DRIVE\s+/ ) {
 		    $DID = $1;
-    #	    	print "matching TOPline $TOPline\n";
-    #		print Dumper ($curHdd{$hddId});
-		    $p_hdd->{"$hddId.$pDiskIdx"} = $curHdd{$hddId};
+		    # print "matching TOPline $TOPline\n";
+		    %{$p_hdd->{"$hddId.$pDiskIdx"}} = %curHdd;
+		    $p_hdd->{"$hddId.$pDiskIdx"}{JBOD} = 0;
 		    $p_hdd->{"$hddId.$pDiskIdx"}{DID} = $DID;
 		    delete $p_hdd->{$hddId} if ($pDiskIdx == 0);
 		    $pDiskIdx++;

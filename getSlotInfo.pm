@@ -573,7 +573,7 @@ sub sltinf_storcli {
 
 	while (<PROGOUT>) {
 	    chomp;
-	    if ( $_ =~ /^\s+(\d+)\s+/ ) {
+	    if ( $_ =~ /^\s*(\d+)\s+/ ) {
 		push ( @encloseidxs, $1 );
 	    }
 	}

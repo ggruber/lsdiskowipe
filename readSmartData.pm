@@ -958,7 +958,7 @@ sub readFARMdata {
 	}
 
 	my $lhddId = $smart->{$hddId}{lhddId};
-	my $phddId = $smart->{$hddId}{phddId} ? $smart->{$hddId}{phddId} : "";
+	my $phddId = $smart->{$hddId}{phddId};
 	my $shddId = $smart->{$hddId}{shddId};	# scsi name/id
 	my $cntrlr = $smart->{$hddId}{cntrlr};
 
@@ -992,7 +992,7 @@ sub readFARMdata {
 	my $PoH;	# PowerOnHours
 	my $AssDate;	# Assembly Date
 
-	my @FARMstate = grep ( /^FARM log .* not supported\s*/, @FARMdata ) ;
+	my @FARMstate = grep ( /^FARM log\s.*\snot supported\s*/, @FARMdata ) ;
 	if ( scalar (@FARMstate) ge 1 ) {
 	    # Seagate disk without FARM data
 	    print "-";
